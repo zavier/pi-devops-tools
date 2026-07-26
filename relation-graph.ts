@@ -216,13 +216,7 @@ export class RelationGraph {
 
       for (const s of settled) {
         if (s.status !== "fulfilled") continue;
-        const {
-          rows: resultRows,
-          elapsed,
-          targetCol,
-          joinPath,
-          depth: nextDepth,
-        } = s.value;
+        const { rows: resultRows, elapsed, targetCol, joinPath, depth: nextDepth } = s.value;
         const columns = resultRows.length > 0 ? Object.keys(resultRows[0]) : [];
 
         results.push({
