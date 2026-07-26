@@ -124,6 +124,32 @@ connections:
 /db history users
 ```
 
+### `/db favorite`
+
+管理收藏的 SQL 模板。不带参数列出当前数据库的收藏，支持直接执行、编辑后执行或删除。
+
+```
+/db favorite              → 列出当前数据库收藏
+/db favorite add          → 交互式添加收藏（名称 + SQL + 描述）
+/db favorite add <名称> <SQL>   → 直接添加，省略交互
+```
+
+收藏按数据库分组（全局收藏对所有数据库可见）。
+
+### `/db relations`
+
+管理表关联关系。不带参数列出已注册的关系。
+
+```
+/db relations             → 列出关系，选择后可删除
+/db relations add         → 交互式注册关系：选源表 → 源列 → 目标表 → 目标列 → 类型
+/db relations remove      → 选择删除已注册的关系
+/db relations discover    → 从 MySQL 外键约束自动发现并导入（可选 AI 分析补充）
+/db relations er-diagram [表名]   → 以该表为中心生成 mermaid ER 图
+```
+
+注册关系后，`/db query` 的 auto-join 模式会通过 BFS 自动联表查询关联数据。
+
 ### `/db refresh-schema`
 
 从数据库刷新本地表结构缓存。
