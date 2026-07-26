@@ -167,6 +167,11 @@ export class QueryHistoryStore {
     return row.cnt;
   }
 
+  /** Get the underlying database instance (for sharing across stores). */
+  getDb(): Database.Database {
+    return this.db;
+  }
+
   /** Close the database connection. */
   close(): void {
     this.db.close();
@@ -182,6 +187,167 @@ export class QueryHistoryStore {
       rowCount: row.row_count,
       elapsed: row.elapsed,
       createdTime: row.created_time,
+    };
+  }
+}
+
+// ====== Favorite Types ======
+
+export interface FavoriteEntry {
+  id: number;
+  name: string;
+  sql: string;
+  database: string;   // '' = global
+  description: string;
+  createdTime: string;
+  updatedTime: string;
+}
+
+export interface FavoriteFilter {
+  database?: string;  // also includes global (database = '')
+  keyword?: string;
+  limit?: number;
+}
+
+// ====== Favorite Store ======
+
+/**
+ * Favorite queries persisted in the same SQLite DB as history.
+ * Table: query_favorites
+ */
+export class FavoriteStore {
+  private db: Database.Database;
+  private initialized = false;
+
+  constructor(db: Database.Database) {
+    this.db = db;
+    this.init();
+  }
+
+  private init(): void {
+    if (this.initialized) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS query_favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        sql TEXT NOT NULL,
+        database TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        created_time TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_time TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_favorites_database
+        ON query_favorites(database, name)
+    `);
+
+    this.initialized = true;
+  }
+
+  /** Save a new favorite. */
+  save(entry: Omit<FavoriteEntry, "id" | "createdTime" | "updatedTime">): FavoriteEntry {
+    const stmt = this.db.prepare(`
+      INSERT INTO query_favorites (name, sql, database, description)
+      VALUES (?, ?, ?, ?)
+    `);
+    const result = stmt.run(entry.name, entry.sql, entry.database, entry.description);
+    return this.getById(Number(result.lastInsertRowid))!;
+  }
+
+  /** Get by ID. */
+  getById(id: number): FavoriteEntry | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM query_favorites WHERE id = ?")
+      .get(id) as Record<string, any> | undefined;
+    if (!row) return undefined;
+    return this.rowToEntry(row);
+  }
+
+  /** List favorites, filtered by database and/or keyword. */
+  list(filter: FavoriteFilter = {}): FavoriteEntry[] {
+    const limit = filter.limit ?? 100;
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (filter.database !== undefined) {
+      conditions.push("(database = ? OR database = '')");
+      params.push(filter.database);
+    }
+
+    if (filter.keyword) {
+      conditions.push("(name LIKE ? OR sql LIKE ?)");
+      params.push(`%${filter.keyword}%`, `%${filter.keyword}%`);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM query_favorites ${where} ORDER BY updated_time DESC, id DESC LIMIT ?`
+      )
+      .all(...params, limit) as Record<string, any>[];
+
+    return rows.map((r) => this.rowToEntry(r));
+  }
+
+  /** Update a favorite's name, sql, and/or description. */
+  update(id: number, fields: { name?: string; sql?: string; description?: string }): FavoriteEntry | undefined {
+    const sets: string[] = [];
+    const params: any[] = [];
+
+    if (fields.name !== undefined) { sets.push("name = ?"); params.push(fields.name); }
+    if (fields.sql !== undefined) { sets.push("sql = ?"); params.push(fields.sql); }
+    if (fields.description !== undefined) { sets.push("description = ?"); params.push(fields.description); }
+
+    if (sets.length === 0) return this.getById(id);
+
+    sets.push("updated_time = datetime('now')");
+    params.push(id);
+
+    this.db
+      .prepare(`UPDATE query_favorites SET ${sets.join(", ")} WHERE id = ?`)
+      .run(...params);
+
+    return this.getById(id);
+  }
+
+  /** Delete a favorite by ID. */
+  delete(id: number): boolean {
+    const result = this.db
+      .prepare("DELETE FROM query_favorites WHERE id = ?")
+      .run(id);
+    return result.changes > 0;
+  }
+
+  /** Total count. */
+  count(filter?: { database?: string }): number {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (filter?.database !== undefined) {
+      conditions.push("(database = ? OR database = '')");
+      params.push(filter.database);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const row = this.db
+      .prepare(`SELECT COUNT(*) as cnt FROM query_favorites ${where}`)
+      .get(...params) as { cnt: number };
+    return row.cnt;
+  }
+
+  private rowToEntry(row: Record<string, any>): FavoriteEntry {
+    return {
+      id: row.id,
+      name: row.name,
+      sql: row.sql,
+      database: row.database,
+      description: row.description,
+      createdTime: row.created_time,
+      updatedTime: row.updated_time,
     };
   }
 }

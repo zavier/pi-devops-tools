@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConnectionsConfig, getConnectionsConfigPath, type ResolvedConnectionConfig } from "../connection/db-config";
 import { DatabaseConnectionManager } from "../connection/db-manager";
-import { QueryHistoryStore, type HistoryEntry } from "../history/store";
+import { QueryHistoryStore, type HistoryEntry, FavoriteStore, type FavoriteEntry } from "../history/store";
 import {
   loadSchemaCache,
   refreshSchemaCache,
@@ -62,13 +62,17 @@ export class DatabaseWorkspaceService {
   readonly connections: ResolvedConnectionConfig[];
   readonly manager: DatabaseConnectionManager;
   readonly history: QueryHistoryStore;
+  readonly favorites: FavoriteStore;
   current: WorkspaceState | null;
+  lastSql: string | null; // most recently executed SQL, for /db favorite add
 
   constructor() {
     this.connections = loadConnectionsConfig();
     this.manager = new DatabaseConnectionManager(this.connections);
     this.history = new QueryHistoryStore();
+    this.favorites = new FavoriteStore(this.history.getDb());
     this.current = loadWorkspace();
+    this.lastSql = null;
   }
 
   /** Whether a database context is currently selected. */
@@ -194,8 +198,9 @@ export class DatabaseWorkspaceService {
     return loadSchemaCache(this.current.connectionId, this.current.database);
   }
 
-  /** Save a query execution to history. */
+  /** Save a query execution to history (also tracks lastSql for favoriting). */
   saveHistory(sql: string, rowCount: number, elapsed: string): HistoryEntry {
+    this.lastSql = sql;
     if (!this.current) throw new Error("No database selected");
     return this.history.save({
       connectionId: this.current.connectionId,
@@ -204,6 +209,24 @@ export class DatabaseWorkspaceService {
       sql,
       rowCount,
       elapsed,
+    });
+  }
+
+  /** Save a favorite. If database scoping is desired, uses current database. */
+  saveFavorite(name: string, sql: string, description?: string): FavoriteEntry {
+    return this.favorites.save({
+      name,
+      sql,
+      database: this.current?.database ?? "",
+      description: description ?? "",
+    });
+  }
+
+  /** List favorites scoped to the current database (plus globals). */
+  getFavorites(keyword?: string): FavoriteEntry[] {
+    return this.favorites.list({
+      database: this.current?.database,
+      keyword,
     });
   }
 
