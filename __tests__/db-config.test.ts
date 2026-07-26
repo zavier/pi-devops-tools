@@ -29,9 +29,10 @@ describe("loadConnectionsConfig", () => {
     paths.length = 0;
   });
 
-  it("returns empty array when file does not exist", () => {
+  it("returns empty connections with warning when file does not exist", () => {
     const result = loadConnectionsConfig("/nonexistent/path/connections.yaml");
-    expect(result).toEqual([]);
+    expect(result.connections).toEqual([]);
+    expect(result.warnings.length).toBeGreaterThan(0);
   });
 
   it("resolves queryLimit to the configured value", () => {
@@ -43,8 +44,8 @@ describe("loadConnectionsConfig", () => {
     queryLimit: 50
 `);
     const result = loadConnectionsConfig(path);
-    expect(result).toHaveLength(1);
-    expect(result[0].queryLimit).toBe(50);
+    expect(result.connections).toHaveLength(1);
+    expect(result.connections[0].queryLimit).toBe(50);
   });
 
   it("defaults queryLimit when not specified", () => {
@@ -55,7 +56,7 @@ describe("loadConnectionsConfig", () => {
     host: h
 `);
     const result = loadConnectionsConfig(path);
-    expect(result[0].queryLimit).toBe(DEFAULT_QUERY_LIMIT);
+    expect(result.connections[0].queryLimit).toBe(DEFAULT_QUERY_LIMIT);
   });
 
   it("resolves ${ENV_VAR} in passwords", () => {
@@ -69,9 +70,25 @@ describe("loadConnectionsConfig", () => {
     password: \${TEST_DB_PASS}
 `);
       const result = loadConnectionsConfig(path);
-      expect(result[0].password).toBe("secret123");
+      expect(result.connections[0].password).toBe("secret123");
+      expect(result.warnings).toEqual([]);
     } finally {
       delete process.env.TEST_DB_PASS;
     }
+  });
+
+  it("warns on unresolved env vars instead of throwing", () => {
+    const path = tmpFile(`connections:
+  a:
+    environment: prod
+    type: mysql
+    host: h
+    password: \${NONEXISTENT_VAR}
+`);
+    const result = loadConnectionsConfig(path);
+    expect(result.connections).toHaveLength(1);
+    expect(result.connections[0].password).toBe("");
+    expect(result.warnings.length).toBe(1);
+    expect(result.warnings[0]).toContain("NONEXISTENT_VAR");
   });
 });

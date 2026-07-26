@@ -76,6 +76,7 @@ export class DatabaseWorkspaceService {
 
   private store: StateStore;
   private connections: ResolvedConnectionConfig[];
+  private configWarnings: string[];
   private manager: DatabaseConnectionManager;
   private history: QueryHistoryStore;
   private favorites: FavoriteStore;
@@ -90,7 +91,9 @@ export class DatabaseWorkspaceService {
 
   constructor(state?: StateStore) {
     this.store = state ?? new StateStore();
-    this.connections = loadConnectionsConfig(this.store.connectionsFile);
+    const result = loadConnectionsConfig(this.store.connectionsFile);
+    this.connections = result.connections;
+    this.configWarnings = result.warnings;
     this.manager = new DatabaseConnectionManager(this.connections);
     this.history = new QueryHistoryStore(this.store.sqlite);
     this.favorites = new FavoriteStore(this.store.sqlite);
@@ -110,6 +113,10 @@ export class DatabaseWorkspaceService {
 
   get configPath(): string {
     return getConnectionsConfigPath(this.store.connectionsFile);
+  }
+
+  getConfigWarnings(): string[] {
+    return this.configWarnings;
   }
 
   get statusLabel(): string {

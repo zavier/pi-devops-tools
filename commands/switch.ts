@@ -24,7 +24,32 @@ export async function showWorkspacePanel(
   } else {
     lines.push("未选择数据库，使用 /db switch 连接");
     lines.push("");
-    lines.push(`可用环境：${ws.getEnvironments().join(", ") || "（未配置）"}`);
+    if (ws.isConfigured) {
+      lines.push(`可用环境：${ws.getEnvironments().join(", ")}`);
+    } else {
+      lines.push("⚠️  尚未配置数据库连接");
+      lines.push("");
+      lines.push(`配置文件：${ws.configPath}`);
+      lines.push("");
+      lines.push("配置示例：");
+      lines.push("  connections:");
+      lines.push("    my-db:");
+      lines.push("      environment: prod");
+      lines.push("      type: mysql");
+      lines.push("      host: 127.0.0.1");
+      lines.push("      port: 3306");
+      lines.push("      username: root");
+      lines.push("      password: ${DB_PASSWORD}");
+    }
+  }
+
+  // Show config warnings (e.g. unresolved env vars)
+  const warnings = ws.getConfigWarnings();
+  if (warnings.length > 0) {
+    lines.push("");
+    for (const w of warnings) {
+      lines.push(`⚠ ${w}`);
+    }
   }
 
   lines.push("");
