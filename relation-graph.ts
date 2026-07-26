@@ -164,9 +164,21 @@ export class RelationGraph {
 
       const refs = this.getDirectRelations(item.schema, item.table);
 
-      for (const [sourceCol, targetCols] of refs) {
-        const values = item.rows.map((r) => r[sourceCol.column]).filter((v) => v != null);
+      // Gather all queries at this depth level so they can run in parallel.
+      // Each query target is independently reachable from the current table.
+      interface QueryTask {
+        targetCol: ColumnRef;
+        sourceCol: ColumnRef;
+        values: unknown[];
+        joinPath: string;
+        depth: number;
+      }
+      const batch: QueryTask[] = [];
 
+      for (const [sourceCol, targetCols] of refs) {
+        const values = item.rows
+          .map((r) => r[sourceCol.column])
+          .filter((v) => v !== null && v !== undefined);
         if (values.length === 0) continue;
 
         for (const targetCol of targetCols) {
@@ -174,41 +186,62 @@ export class RelationGraph {
           if (visited.has(tk)) continue;
           visited.add(tk);
 
-          // Parameterized IN (?) — mysql2 expands the array. No string
-          // interpolation of values. Table names are schema-qualified so
-          // cross-schema relations work and no USE state is required.
-          let whereClause = `\`${targetCol.column}\` IN (?)`;
-          if (targetCol.condition) {
-            whereClause = `(${whereClause}) AND (${targetCol.condition})`;
-          }
-
-          const sql = `SELECT * FROM \`${targetCol.schema}\`.\`${targetCol.table}\` WHERE ${whereClause} LIMIT ${limit}`;
-          const { rows: resultRows, elapsed } = await query(sql, [values]);
-
           const joinPath = item.joinPath
             ? `${item.joinPath} -> ${sourceCol.table}.${sourceCol.column} -> ${targetCol.table}.${targetCol.column}`
             : `${sourceCol.table}.${sourceCol.column} -> ${targetCol.table}.${targetCol.column}`;
 
-          const columns = resultRows.length > 0 ? Object.keys(resultRows[0]) : [];
-
-          results.push({
-            schema: targetCol.schema,
-            table: targetCol.table,
-            columns,
-            rows: resultRows,
-            rowCount: resultRows.length,
+          batch.push({
+            targetCol,
+            sourceCol,
+            values,
             joinPath,
-            elapsed,
-          });
-
-          queue.push({
-            schema: targetCol.schema,
-            table: targetCol.table,
-            rows: resultRows,
             depth: item.depth + 1,
-            joinPath,
           });
         }
+      }
+
+      // Fire all queries for this level in parallel.
+      const settled = await Promise.allSettled(
+        batch.map((t) =>
+          (async () => {
+            let whereClause = `\`${t.targetCol.column}\` IN (?)`;
+            if (t.targetCol.condition) {
+              whereClause = `(${whereClause}) AND (${t.targetCol.condition})`;
+            }
+            const sql = `SELECT * FROM \`${t.targetCol.schema}\`.\`${t.targetCol.table}\` WHERE ${whereClause} LIMIT ${limit}`;
+            return query(sql, [t.values]).then((qr) => ({ ...qr, ...t }));
+          })(),
+        ),
+      );
+
+      for (const s of settled) {
+        if (s.status !== "fulfilled") continue;
+        const {
+          rows: resultRows,
+          elapsed,
+          targetCol,
+          joinPath,
+          depth: nextDepth,
+        } = s.value;
+        const columns = resultRows.length > 0 ? Object.keys(resultRows[0]) : [];
+
+        results.push({
+          schema: targetCol.schema,
+          table: targetCol.table,
+          columns,
+          rows: resultRows,
+          rowCount: resultRows.length,
+          joinPath,
+          elapsed,
+        });
+
+        queue.push({
+          schema: targetCol.schema,
+          table: targetCol.table,
+          rows: resultRows,
+          depth: nextDepth,
+          joinPath,
+        });
       }
     }
 

@@ -8,7 +8,7 @@
 import Database from "better-sqlite3";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 
 const DEFAULT_BASE = join(homedir(), ".pi", "database");
 

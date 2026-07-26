@@ -6,6 +6,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
+import type { SqlRow } from "../types";
 import type { RelationRow } from "../relation/store";
 import { pickTable } from "./utils";
 
@@ -55,7 +56,7 @@ export async function handleRelations(
 async function handleRelationsList(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
-  pi: ExtensionAPI,
+  _pi: ExtensionAPI,
 ): Promise<void> {
   const rows = ws.listRelations();
 
@@ -99,7 +100,7 @@ async function handleRelationsList(
 async function handleRelationsAdd(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
-  pi: ExtensionAPI,
+  _pi: ExtensionAPI,
 ): Promise<void> {
   if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
@@ -112,7 +113,7 @@ async function handleRelationsAdd(
   let srcColumns: string[] = [];
   try {
     const schemaInfo = await ws.getTableSchema(srcTable);
-    srcColumns = schemaInfo.columns.map((c: Record<string, any>) => c.COLUMN_NAME as string);
+    srcColumns = schemaInfo.columns.map((c: SqlRow) => c.COLUMN_NAME as string);
   } catch {
     ctx.ui.notify(`无法获取 ${srcTable} 的列信息`, "error");
     return;
@@ -127,7 +128,7 @@ async function handleRelationsAdd(
   let refColumns: string[] = [];
   try {
     const schemaInfo = await ws.getTableSchema(refTable);
-    refColumns = schemaInfo.columns.map((c: Record<string, any>) => c.COLUMN_NAME as string);
+    refColumns = schemaInfo.columns.map((c: SqlRow) => c.COLUMN_NAME as string);
   } catch {
     ctx.ui.notify(`无法获取 ${refTable} 的列信息`, "error");
     return;
@@ -163,7 +164,7 @@ async function handleRelationsAdd(
 async function handleRelationsRemove(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
-  pi: ExtensionAPI,
+  _pi: ExtensionAPI,
 ): Promise<void> {
   const rows = ws.listRelations();
   if (rows.length === 0) {
@@ -306,7 +307,7 @@ async function handleRelationsERDiagram(
     table = picked;
   }
 
-  let tableColumns: Record<string, any>[] = [];
+  let tableColumns: SqlRow[] = [];
   try {
     const info = await ws.getTableSchema(table);
     tableColumns = info.columns;
@@ -322,7 +323,7 @@ async function handleRelationsERDiagram(
     relatedTableNames.add(r.table_name);
   }
 
-  const allColumns = new Map<string, Record<string, any>[]>();
+  const allColumns = new Map<string, SqlRow[]>();
   allColumns.set(table, tableColumns);
   for (const relatedTable of relatedTableNames) {
     if (relatedTable === table) continue;

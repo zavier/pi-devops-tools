@@ -82,6 +82,14 @@ function pickId(row: SqlRow, columns: string[]): string {
   return "";
 }
 
+// ====== Cell formatting ======
+
+function cell(val: unknown, w: number): string {
+  const s = val === null ? "NULL" : String(val);
+  if (s.length > w) return s.slice(0, w - 1) + "…";
+  return s.padEnd(w);
+}
+
 // ====== Horizontal table (≤ 8 cols) ======
 
 function formatHorizontal(cols: string[], rows: SqlRow[], totalRows: number, note: string): string {
@@ -97,12 +105,6 @@ function formatHorizontal(cols: string[], rows: SqlRow[], totalRows: number, not
     }
     return Math.min(max, MAX_COL);
   });
-
-  const cell = (val: unknown, w: number): string => {
-    const s = val === null ? "NULL" : String(val);
-    if (s.length > w) return s.slice(0, w - 1) + "…";
-    return s.padEnd(w);
-  };
 
   const lines: string[] = [];
   lines.push("| " + cols.map((c, i) => cell(c, widths[i])).join(" | ") + " |");
@@ -132,12 +134,6 @@ function formatTransposed(cols: string[], rows: SqlRow[], totalRows: number, not
 
   const colWidth = Math.min(MAX_COL_NAME, Math.max(...cols.map((c) => c.length)));
   const cellWidths = rowHeaders.map((h) => Math.min(MAX_CELL, h.length));
-
-  const cell = (val: unknown, w: number): string => {
-    const s = val === null ? "NULL" : String(val);
-    if (s.length > w) return s.slice(0, w - 1) + "…";
-    return s.padEnd(w);
-  };
 
   const lines: string[] = [];
 

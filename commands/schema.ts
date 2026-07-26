@@ -4,6 +4,7 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
+import type { SqlRow } from "../types";
 import { pickTable } from "./utils";
 
 export async function handleSchema(
@@ -22,7 +23,7 @@ export async function handleSchema(
     table = picked;
   }
 
-  let result: { columns: Record<string, any>[]; indexes: Record<string, any>[] };
+  let result: { columns: SqlRow[]; indexes: SqlRow[] };
   try {
     result = await ws.getTableSchema(table);
   } catch (err: any) {
@@ -40,9 +41,9 @@ export async function handleSchema(
           : c.COLUMN_KEY === "UNI"
             ? "UQ"
             : "";
-    const def = c.COLUMN_DEFAULT ?? "";
-    const extra = c.EXTRA ?? "";
-    const comment = c.COLUMN_COMMENT ?? "";
+    const def = String(c.COLUMN_DEFAULT ?? "");
+    const extra = String(c.EXTRA ?? "");
+    const comment = String(c.COLUMN_COMMENT ?? "");
     const name = (c.COLUMN_NAME as string).padEnd(25);
     const type = (c.COLUMN_TYPE as string).padEnd(16);
     return `  ${name}${type}${nullable.padEnd(4)}${key.padEnd(3)}${def.padEnd(12)}${extra.padEnd(10)}${comment}`;

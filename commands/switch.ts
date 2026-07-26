@@ -44,13 +44,13 @@ export async function showWorkspacePanel(
 export async function handleSwitch(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
-  pi: ExtensionAPI,
+  _pi: ExtensionAPI,
 ): Promise<void> {
   // --- Step 1: Pick environment ---
   const environments = ws.getEnvironments();
   if (environments.length === 0) {
     ctx.ui.notify(
-      "未配置数据库连接。\n" + "请在 ~/.pi/database/connections.yaml 中配置连接信息。",
+      "未配置数据库连接。\n请在 ~/.pi/database/connections.yaml 中配置连接信息。",
       "error",
     );
     return;

@@ -111,8 +111,6 @@ async function handleFavoriteList(
     return;
   }
 
-  const text = formatFavoriteList(entries, ws.current?.database);
-
   const labels = entries.map((e) => {
     const sql = e.sql.length > 40 ? e.sql.slice(0, 37) + "..." : e.sql.padEnd(40);
     return `#${String(e.id).padStart(3)} ${e.name.padEnd(18)} ${sql}`;

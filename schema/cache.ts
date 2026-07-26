@@ -123,44 +123,49 @@ export async function refreshSchemaCache(
 
   const cachedTables: CachedTable[] = [];
 
-  for (const table of tables) {
-    const { columns: colRows, indexes: idxRows } = await manager.getTableSchema(
-      connectionId,
-      database,
-      table,
+  // Process tables in parallel batches to avoid overwhelming the connection pool.
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < tables.length; i += BATCH_SIZE) {
+    const batch = tables.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map((table) =>
+        manager.getTableSchema(connectionId, database, table).then((r) => ({ table, ...r })),
+      ),
     );
 
-    // Build column list
-    const columns: CachedColumn[] = (colRows as Record<string, any>[]).map((c) => ({
-      name: c.COLUMN_NAME as string,
-      type: c.COLUMN_TYPE as string,
-      nullable: c.IS_NULLABLE === "YES",
-      key: c.COLUMN_KEY as string,
-      default: c.COLUMN_DEFAULT ?? null,
-      extra: (c.EXTRA ?? "") as string,
-      comment: (c.COLUMN_COMMENT ?? "") as string,
-    }));
+    for (const { table, columns: colRows, indexes: idxRows } of batchResults) {
+      // Build column list
+      const columns: CachedColumn[] = (colRows as Record<string, any>[]).map((c) => ({
+        name: c.COLUMN_NAME as string,
+        type: c.COLUMN_TYPE as string,
+        nullable: c.IS_NULLABLE === "YES",
+        key: c.COLUMN_KEY as string,
+        default: c.COLUMN_DEFAULT ?? null,
+        extra: (c.EXTRA ?? "") as string,
+        comment: (c.COLUMN_COMMENT ?? "") as string,
+      }));
 
-    // Build index list (grouped by name)
-    const idxMap = new Map<string, { columns: string[]; unique: boolean }>();
-    for (const idx of idxRows as Record<string, any>[]) {
-      const name = idx.INDEX_NAME as string;
-      if (!idxMap.has(name)) {
-        idxMap.set(name, {
-          columns: [],
-          unique: idx.NON_UNIQUE === 0,
-        });
+      // Build index list (grouped by name)
+      const idxMap = new Map<string, { columns: string[]; unique: boolean }>();
+      for (const idx of idxRows as Record<string, any>[]) {
+        const name = idx.INDEX_NAME as string;
+        if (!idxMap.has(name)) {
+          idxMap.set(name, {
+            columns: [],
+            unique: idx.NON_UNIQUE === 0,
+          });
+        }
+        idxMap.get(name)!.columns.push(idx.COLUMN_NAME as string);
       }
-      idxMap.get(name)!.columns.push(idx.COLUMN_NAME as string);
+
+      const indexes: CachedIndex[] = [...idxMap.entries()].map(([name, info]) => ({
+        name,
+        columns: info.columns,
+        unique: info.unique,
+      }));
+
+      cachedTables.push({ name: table, columns, indexes });
     }
-
-    const indexes: CachedIndex[] = [...idxMap.entries()].map(([name, info]) => ({
-      name,
-      columns: info.columns,
-      unique: info.unique,
-    }));
-
-    cachedTables.push({ name: table, columns, indexes });
   }
 
   const snapshot: SchemaSnapshot = {

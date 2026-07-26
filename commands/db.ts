@@ -4,7 +4,7 @@
  * Thin router: delegates to per-subcommand handler modules.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { STATUS_KEY, showWorkspacePanel, handleSwitch } from "./switch";
 import { handleTables } from "./tables";

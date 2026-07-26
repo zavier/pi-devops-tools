@@ -14,14 +14,14 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import type { RelatedResult } from "../types";
+import type { RelatedResult, SqlRow } from "../types";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
 import { formatTableResult } from "../formatting/result-table";
 import { pickTable } from "./utils";
 
 interface ExecutedResult {
   columns: string[];
-  rows: Record<string, any>[];
+  rows: SqlRow[];
   elapsed: string;
   sql: string; // final SQL after policy (LIMIT may have been appended)
 }
