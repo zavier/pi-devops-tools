@@ -1,95 +1,77 @@
+/**
+ * ConnectionManager — thin adapter composing DatabaseConnectionManager + SSHClientManager.
+ *
+ * Delegates MySQL pool management to DatabaseConnectionManager and SSH to SSHClientManager.
+ * This is the single entry point used by tool factories (query-database, query-logs, sync-foreign-keys).
+ */
+
 import mysql from "mysql2/promise";
 import { Client } from "ssh2";
-import { readFileSync } from "node:fs";
+import { DatabaseConnectionManager } from "./connection/db-manager";
+import { SSHClientManager, type SSHServerConfig } from "./ssh/client";
 import type { AppConfig } from "./types";
+import type { ResolvedConnectionConfig } from "./connection/db-config";
 
 export class ConnectionManager {
-  private mysqlPools = new Map<string, mysql.Pool>();
-  private sshClients = new Map<string, Client>();
+  private dbManager: DatabaseConnectionManager;
+  private sshManager: SSHClientManager;
+  private serverConfigs: Record<string, SSHServerConfig>;
 
-  constructor(private config: AppConfig) {}
+  constructor(config: AppConfig) {
+    // Bridge AppConfig → ResolvedConnectionConfig[]
+    const connections: ResolvedConnectionConfig[] = Object.entries(config.databases).map(
+      ([id, db]) => ({
+        id,
+        environment: "default",
+        type: "mysql" as const,
+        host: db.host,
+        port: db.port,
+        username: db.user,
+        password: db.password,
+        defaultDatabase: db.dbs[0],
+      }),
+    );
 
-  getMySQLPool(cluster: string): mysql.Pool {
-    const existing = this.mysqlPools.get(cluster);
-    if (existing) return existing;
+    this.dbManager = new DatabaseConnectionManager(connections);
+    this.sshManager = new SSHClientManager();
 
-    const dbConfig = this.config.databases[cluster];
-    if (!dbConfig) {
-      throw new Error(
-        `Database cluster '${cluster}' not found in config. ` +
-        `Available: ${Object.keys(this.config.databases).join(", ")}`
-      );
+    // Convert server configs to SSH format
+    this.serverConfigs = {};
+    for (const [name, srv] of Object.entries(config.servers)) {
+      this.serverConfigs[name] = {
+        host: srv.host,
+        port: srv.port,
+        user: srv.user,
+        keyPath: srv.keyPath,
+      };
     }
-
-    const pool = mysql.createPool({
-      host: dbConfig.host,
-      port: dbConfig.port,
-      user: dbConfig.user,
-      password: dbConfig.password,
-      connectTimeout: 30000,
-      waitForConnections: true,
-      connectionLimit: 5,
-      // Pi Extension 是长期运行的，不需要 idle 超时回收
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 60000,
-    });
-
-    this.mysqlPools.set(cluster, pool);
-    return pool;
   }
 
-  async getSSHClient(serverName: string): Promise<Client> {
-    const existing = this.sshClients.get(serverName);
-    if (existing) return existing;
+  /** Get or create a MySQL pool for a cluster (delegates to DatabaseConnectionManager). */
+  getMySQLPool(cluster: string): mysql.Pool {
+    return this.dbManager.getPool(cluster);
+  }
 
-    const serverConfig = this.config.servers[serverName];
-    if (!serverConfig) {
+  /** Get or create an SSH client for a server (delegates to SSHClientManager). */
+  async getSSHClient(serverName: string): Promise<Client> {
+    const cfg = this.serverConfigs[serverName];
+    if (!cfg) {
       throw new Error(
         `Server '${serverName}' not found in config. ` +
-        `Available: ${Object.keys(this.config.servers).join(", ")}`
+        `Available: ${Object.keys(this.serverConfigs).join(", ")}`,
       );
     }
-
-    const client = new Client();
-    const keyPath = serverConfig.keyPath.replace(/^~/, process.env.HOME || "/root");
-
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        client.end();
-        reject(new Error(`SSH connection to ${serverName} timed out after 10s`));
-      }, 10000);
-
-      client.on("ready", () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      client.on("error", (err: Error) => {
-        clearTimeout(timeout);
-        reject(new Error(`SSH connection to ${serverName} failed: ${err.message}`));
-      });
-
-      client.connect({
-        host: serverConfig.host,
-        port: serverConfig.port,
-        username: serverConfig.user,
-        privateKey: readFileSync(keyPath, "utf-8"),
-        readyTimeout: 10000,
-      });
-    });
-
-    this.sshClients.set(serverName, client);
-    return client;
+    return this.sshManager.getClient(serverName, cfg);
   }
 
+  /** Expose the underlying pool manager for tools that need richer query methods. */
+  getDatabaseManager(): DatabaseConnectionManager {
+    return this.dbManager;
+  }
+
+  /** Release all resources. */
   destroy(): void {
-    for (const [name, pool] of this.mysqlPools) {
-      pool.end();
-      this.mysqlPools.delete(name);
-    }
-    for (const [name, client] of this.sshClients) {
-      client.end();
-      this.sshClients.delete(name);
-    }
+    this.dbManager.destroy();
+    this.sshManager.destroy();
   }
 }
