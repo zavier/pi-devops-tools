@@ -15,22 +15,14 @@
 
 ## 安装
 
-### 从 GitHub 安装
-
 ```bash
-pi install git:github.com/你的用户名/pi-devops-tools
-```
-
-### 从 npm 安装
-
-```bash
-pi install npm:pi-devops-tools
+pi install git:github.com/zavier/pi-devops-tools
 ```
 
 ### 本地开发
 
 ```bash
-git clone git@github.com:你的用户名/pi-devops-tools.git
+git clone git@github.com:zavier/pi-devops-tools.git
 pi install ./pi-devops-tools
 ```
 
