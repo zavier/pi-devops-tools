@@ -2,9 +2,14 @@
   "name": "pi-devops-tools",
   "version": "0.1.0",
   "description": "Database workspace extension for pi — query MySQL with schema caching, relation graph, and query history",
-  "keywords": ["pi-package", "pi-extension", "database", "mysql", "devops"],
+  "keywords": [
+    "database",
+    "devops",
+    "mysql",
+    "pi-extension",
+    "pi-package"
+  ],
   "license": "MIT",
-  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/你的用户名/pi-devops-tools.git"
@@ -20,10 +25,30 @@
     "connection/",
     "formatting/"
   ],
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "check": "tsc --noEmit",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
   "dependencies": {
     "better-sqlite3": "^13.0.1",
     "js-yaml": "^4.1.0",
     "mysql2": "^3.12.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.80.6",
+    "@earendil-works/pi-coding-agent": "^0.80.6",
+    "@sinclair/typebox": "^0.34.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
+    "oxfmt": "0.42.0",
+    "oxlint": "1.63.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -34,17 +59,5 @@
     "extensions": [
       "./index.ts"
     ]
-  },
-  "devDependencies": {
-    "@earendil-works/pi-ai": "^0.80.6",
-    "@earendil-works/pi-coding-agent": "^0.80.6",
-    "@sinclair/typebox": "^0.34.0",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/js-yaml": "^4.0.9",
-    "typescript": "^5.7.0",
-    "vitest": "^2.1.0"
-  },
-  "scripts": {
-    "test": "vitest run"
   }
 }

@@ -9,7 +9,10 @@ describe("loadConnectionsConfig", () => {
   const paths: string[] = [];
 
   function tmpFile(content: string): string {
-    const p = join(tmpdir(), `test-connections-${Date.now()}-${Math.random().toString(36).slice(2)}.yaml`);
+    const p = join(
+      tmpdir(),
+      `test-connections-${Date.now()}-${Math.random().toString(36).slice(2)}.yaml`,
+    );
     writeFileSync(p, content);
     paths.push(p);
     return p;
@@ -17,7 +20,11 @@ describe("loadConnectionsConfig", () => {
 
   afterEach(() => {
     for (const p of paths) {
-      try { unlinkSync(p); } catch { /* ok */ }
+      try {
+        unlinkSync(p);
+      } catch {
+        /* ok */
+      }
     }
     paths.length = 0;
   });

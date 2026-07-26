@@ -12,8 +12,8 @@ import type { ResolvedConnectionConfig } from "./db-config";
 import { prepareReadOnlyQuery, DEFAULT_QUERY_LIMIT } from "./sql-policy";
 
 export interface QueryOptions {
-  limit?: number;     // row cap for SELECTs without trailing LIMIT (default: connection's queryLimit)
-  timeout?: number;   // per-query timeout in ms (default: 30000)
+  limit?: number; // row cap for SELECTs without trailing LIMIT (default: connection's queryLimit)
+  timeout?: number; // per-query timeout in ms (default: 30000)
   params?: unknown[]; // bound values for ? placeholders
 }
 
@@ -29,7 +29,7 @@ export class DatabaseConnectionManager {
   private configMap: Map<string, ResolvedConnectionConfig>;
 
   constructor(connections: ResolvedConnectionConfig[]) {
-    this.configMap = new Map(connections.map(c => [c.id, c]));
+    this.configMap = new Map(connections.map((c) => [c.id, c]));
   }
 
   /** Get the config for a connection ID. */
@@ -54,7 +54,7 @@ export class DatabaseConnectionManager {
     const cfg = this.configMap.get(connectionId);
     if (!cfg) {
       throw new Error(
-        `Connection '${connectionId}' not found. Available: ${this.getConnectionIds().join(", ")}`
+        `Connection '${connectionId}' not found. Available: ${this.getConnectionIds().join(", ")}`,
       );
     }
 
@@ -81,7 +81,7 @@ export class DatabaseConnectionManager {
   async getDatabases(connectionId: string): Promise<string[]> {
     const pool = this.getPool(connectionId);
     const [rows] = await pool.query<RowDataPacket[]>("SHOW DATABASES");
-    return rows.map(r => r.Database as string).sort();
+    return rows.map((r) => r.Database as string).sort();
   }
 
   /**
@@ -91,9 +91,9 @@ export class DatabaseConnectionManager {
     const pool = this.getPool(connectionId);
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`,
-      [database]
+      [database],
     );
-    return rows.map(r => r.TABLE_NAME as string);
+    return rows.map((r) => r.TABLE_NAME as string);
   }
 
   /**
@@ -102,7 +102,7 @@ export class DatabaseConnectionManager {
   async getTableSchema(
     connectionId: string,
     database: string,
-    table: string
+    table: string,
   ): Promise<{ columns: RowDataPacket[]; indexes: RowDataPacket[] }> {
     const pool = this.getPool(connectionId);
 
@@ -111,7 +111,7 @@ export class DatabaseConnectionManager {
        FROM information_schema.COLUMNS
        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
        ORDER BY ORDINAL_POSITION`,
-      [database, table]
+      [database, table],
     );
 
     const [indexes] = await pool.query<RowDataPacket[]>(
@@ -119,7 +119,7 @@ export class DatabaseConnectionManager {
        FROM information_schema.STATISTICS
        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
        ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
-      [database, table]
+      [database, table],
     );
 
     return { columns, indexes };
@@ -165,7 +165,10 @@ export class DatabaseConnectionManager {
    * Discover foreign key relationships from information_schema.
    * Returns ColumnRelation[] suitable for merging into RelationGraph.
    */
-  async discoverForeignKeys(connectionId: string, schema: string): Promise<import("../types").ColumnRelation[]> {
+  async discoverForeignKeys(
+    connectionId: string,
+    schema: string,
+  ): Promise<import("../types").ColumnRelation[]> {
     const pool = this.getPool(connectionId);
     const fkSql = `
       SELECT
@@ -179,7 +182,7 @@ export class DatabaseConnectionManager {
       WHERE TABLE_SCHEMA = ?
         AND REFERENCED_COLUMN_NAME IS NOT NULL
     `;
-    const [rows] = await pool.query(fkSql, [schema]) as [Record<string, any>[], any];
+    const [rows] = (await pool.query(fkSql, [schema])) as [Record<string, any>[], any];
 
     return rows.map((row: Record<string, any>) => ({
       schema: row.TABLE_SCHEMA as string,

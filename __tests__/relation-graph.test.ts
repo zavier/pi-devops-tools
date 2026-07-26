@@ -57,12 +57,12 @@ describe("RelationGraph", () => {
     graph.register(
       { schema: "a", table: "t1", column: "c1" },
       { schema: "a", table: "t2", column: "c2" },
-      "ONE_TO_ONE"
+      "ONE_TO_ONE",
     );
     graph.register(
       { schema: "b", table: "t3", column: "c3" },
       { schema: "b", table: "t4", column: "c4" },
-      "ONE_TO_ONE"
+      "ONE_TO_ONE",
     );
 
     expect(graph.list("a").length).toBe(1);
@@ -101,9 +101,7 @@ describe("RelationGraph.bfsQuery", () => {
     // t_user rows intentionally lack `id` — otherwise the bidirectional graph
     // would traverse straight back to t_order.
     const { fn, calls } = stubQuery({ "db1.t_user": [{ name: "ada" }] });
-    const results = await graph.bfsQuery(
-      fn, "db1", "t_order", [{ id: 1, user_id: 7 }], 2, 10,
-    );
+    const results = await graph.bfsQuery(fn, "db1", "t_order", [{ id: 1, user_id: 7 }], 2, 10);
 
     expect(results.length).toBe(1);
     expect(results[0].table).toBe("t_user");
@@ -112,9 +110,7 @@ describe("RelationGraph.bfsQuery", () => {
     expect(results[0].elapsed).toBe("0.001s");
 
     expect(calls.length).toBe(1);
-    expect(calls[0].sql).toBe(
-      "SELECT * FROM `db1`.`t_user` WHERE `id` IN (?) LIMIT 10",
-    );
+    expect(calls[0].sql).toBe("SELECT * FROM `db1`.`t_user` WHERE `id` IN (?) LIMIT 10");
     expect(calls[0].params).toEqual([[7]]);
   });
 
@@ -144,9 +140,7 @@ describe("RelationGraph.bfsQuery", () => {
     );
 
     const { fn, calls } = stubQuery({});
-    const results = await graph.bfsQuery(
-      fn, "db1", "t_order", [{ id: 1, user_id: null }], 2, 10,
-    );
+    const results = await graph.bfsQuery(fn, "db1", "t_order", [{ id: 1, user_id: null }], 2, 10);
 
     expect(results.length).toBe(0);
     expect(calls.length).toBe(0);
@@ -172,11 +166,11 @@ describe("RelationGraph.bfsQuery", () => {
 
     // maxDepth 1: only the first hop
     const shallow = await graph.bfsQuery(fn, "db1", "a", [{ b_id: 1 }], 1, 10);
-    expect(shallow.map(r => r.table)).toEqual(["b"]);
+    expect(shallow.map((r) => r.table)).toEqual(["b"]);
 
     // maxDepth 2: reaches c
     const deep = await graph.bfsQuery(fn, "db1", "a", [{ b_id: 1 }], 2, 10);
-    expect(deep.map(r => r.table)).toEqual(["b", "c"]);
+    expect(deep.map((r) => r.table)).toEqual(["b", "c"]);
     expect(deep[1].joinPath).toBe("a.b_id -> b.id -> b.c_id -> c.id");
   });
 
@@ -194,7 +188,7 @@ describe("RelationGraph.bfsQuery", () => {
     });
 
     const results = await graph.bfsQuery(fn, "db1", "a", [{ b_id: 1 }], 5, 10);
-    const tables = results.map(r => r.table);
+    const tables = results.map((r) => r.table);
     expect(tables.length).toBe(new Set(tables).size);
   });
 
@@ -207,9 +201,7 @@ describe("RelationGraph.bfsQuery", () => {
 
     // t_user rows intentionally lack `id` (see first bfsQuery test).
     const { fn, calls } = stubQuery({ "db2.t_user": [{ name: "ada" }] });
-    const results = await graph.bfsQuery(
-      fn, "db1", "t_order", [{ user_id: 7 }], 2, 10,
-    );
+    const results = await graph.bfsQuery(fn, "db1", "t_order", [{ user_id: 7 }], 2, 10);
 
     expect(calls[0].sql).toContain("FROM `db2`.`t_user`");
     expect(results[0].schema).toBe("db2");

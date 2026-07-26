@@ -24,9 +24,7 @@ export async function showWorkspacePanel(
   } else {
     lines.push("未选择数据库，使用 /db switch 连接");
     lines.push("");
-    lines.push(
-      `可用环境：${ws.getEnvironments().join(", ") || "（未配置）"}`,
-    );
+    lines.push(`可用环境：${ws.getEnvironments().join(", ") || "（未配置）"}`);
   }
 
   lines.push("");
@@ -52,8 +50,7 @@ export async function handleSwitch(
   const environments = ws.getEnvironments();
   if (environments.length === 0) {
     ctx.ui.notify(
-      "未配置数据库连接。\n" +
-        "请在 ~/.pi/database/connections.yaml 中配置连接信息。",
+      "未配置数据库连接。\n" + "请在 ~/.pi/database/connections.yaml 中配置连接信息。",
       "error",
     );
     return;

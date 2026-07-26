@@ -26,7 +26,7 @@ export interface CachedColumn {
   name: string;
   type: string;
   nullable: boolean;
-  key: string;    // "PRI", "MUL", "UNI", ""
+  key: string; // "PRI", "MUL", "UNI", ""
   default: string | null;
   extra: string;
   comment: string;
@@ -53,7 +53,11 @@ export interface SchemaSnapshot {
 // ====== Cache operations ======
 
 /** Load a cached schema snapshot. Returns null if not cached. */
-export function loadSchemaCache(connectionId: string, database: string, baseDir?: string): SchemaSnapshot | null {
+export function loadSchemaCache(
+  connectionId: string,
+  database: string,
+  baseDir?: string,
+): SchemaSnapshot | null {
   try {
     const path = cachePath(connectionId, database, baseDir);
     if (!existsSync(path)) return null;
@@ -71,7 +75,11 @@ export function loadSchemaCache(connectionId: string, database: string, baseDir?
 }
 
 /** Save a schema snapshot to the cache. */
-export function saveSchemaCache(snapshot: SchemaSnapshot, connectionId: string, baseDir?: string): void {
+export function saveSchemaCache(
+  snapshot: SchemaSnapshot,
+  connectionId: string,
+  baseDir?: string,
+): void {
   const path = cachePath(connectionId, snapshot.database, baseDir);
   const dir = join(path, "..");
   mkdirSync(dir, { recursive: true });
@@ -79,7 +87,11 @@ export function saveSchemaCache(snapshot: SchemaSnapshot, connectionId: string, 
 }
 
 /** Get cached table list (fast, no DB query). Returns null if not cached. */
-export function getCachedTables(connectionId: string, database: string, baseDir?: string): string[] | null {
+export function getCachedTables(
+  connectionId: string,
+  database: string,
+  baseDir?: string,
+): string[] | null {
   const cache = loadSchemaCache(connectionId, database, baseDir);
   if (!cache) return null;
   return cache.tables.map((t) => t.name);
@@ -142,13 +154,11 @@ export async function refreshSchemaCache(
       idxMap.get(name)!.columns.push(idx.COLUMN_NAME as string);
     }
 
-    const indexes: CachedIndex[] = [...idxMap.entries()].map(
-      ([name, info]) => ({
-        name,
-        columns: info.columns,
-        unique: info.unique,
-      }),
-    );
+    const indexes: CachedIndex[] = [...idxMap.entries()].map(([name, info]) => ({
+      name,
+      columns: info.columns,
+      unique: info.unique,
+    }));
 
     cachedTables.push({ name: table, columns, indexes });
   }

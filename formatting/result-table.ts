@@ -5,6 +5,8 @@
  * that need to inspect column stats separately.
  */
 
+import type { SqlRow } from "../types";
+
 // ====== Types ======
 
 export interface ColumnStats {
@@ -15,12 +17,12 @@ export interface ColumnStats {
 
 export interface TableResult {
   columns: string[];
-  rows: Record<string, any>[];
+  rows: SqlRow[];
 }
 
 // ====== Column analysis ======
 
-export function analyzeColumns(columns: string[], rows: Record<string, any>[]): ColumnStats {
+export function analyzeColumns(columns: string[], rows: SqlRow[]): ColumnStats {
   const visible: string[] = [];
   const allNull: string[] = [];
   const allSame: { col: string; value: string }[] = [];
@@ -35,8 +37,13 @@ export function analyzeColumns(columns: string[], rows: Record<string, any>[]): 
       const val = row[col];
       if (val !== null && val !== undefined) {
         isAllNull = false;
-        if (!firstSet) { firstVal = val; firstSet = true; }
-        else if (String(val) !== String(firstVal)) { isAllSame = false; break; }
+        if (!firstSet) {
+          firstVal = val;
+          firstSet = true;
+        } else if (String(val) !== String(firstVal)) {
+          isAllSame = false;
+          break;
+        }
       }
     }
 
@@ -54,7 +61,10 @@ function hiddenNote(stats: ColumnStats): string {
   const parts: string[] = [];
   if (stats.allNull.length > 0) parts.push(`${stats.allNull.length} 列全为 NULL`);
   if (stats.allSame.length > 0) {
-    const sample = stats.allSame.slice(0, 2).map(s => `${s.col}=${s.value}`).join(", ");
+    const sample = stats.allSame
+      .slice(0, 2)
+      .map((s) => `${s.col}=${s.value}`)
+      .join(", ");
     const trail = stats.allSame.length > 2 ? "，…" : "";
     parts.push(`${stats.allSame.length} 列值相同：${sample}${trail}`);
   }
@@ -63,23 +73,23 @@ function hiddenNote(stats: ColumnStats): string {
 
 // ====== Row identifier ======
 
-function pickId(row: Record<string, any>, columns: string[]): string {
+function pickId(row: SqlRow, columns: string[]): string {
   const candidates = ["id", "name", "host", "user", "username", "email", "key", "code"];
   for (const c of candidates) {
-    const match = columns.find(col => col.toLowerCase() === c);
-    if (match && row[match] != null) return String(row[match]);
+    const match = columns.find((col) => col.toLowerCase() === c);
+    if (match && row[match] !== null) return String(row[match]);
   }
   return "";
 }
 
 // ====== Horizontal table (≤ 8 cols) ======
 
-function formatHorizontal(cols: string[], rows: Record<string, any>[], totalRows: number, note: string): string {
+function formatHorizontal(cols: string[], rows: SqlRow[], totalRows: number, note: string): string {
   const MAX_COL = 22;
   const MAX_DISPLAY = 20;
   const displayRows = rows.slice(0, MAX_DISPLAY);
 
-  const widths = cols.map(col => {
+  const widths = cols.map((col) => {
     let max = Math.min(col.length, MAX_COL);
     for (const row of displayRows) {
       const len = row[col] === null ? 4 : String(row[col]).length;
@@ -96,7 +106,7 @@ function formatHorizontal(cols: string[], rows: Record<string, any>[], totalRows
 
   const lines: string[] = [];
   lines.push("| " + cols.map((c, i) => cell(c, widths[i])).join(" | ") + " |");
-  lines.push("|" + widths.map(w => "-".repeat(w + 2)).join("|") + "|");
+  lines.push("|" + widths.map((w) => "-".repeat(w + 2)).join("|") + "|");
   for (const row of displayRows) {
     lines.push("| " + cols.map((c, i) => cell(row[c], widths[i])).join(" | ") + " |");
   }
@@ -108,7 +118,7 @@ function formatHorizontal(cols: string[], rows: Record<string, any>[], totalRows
 
 // ====== Transposed (columns→rows, rows→columns; > 8 cols & ≤ 10 rows) ======
 
-function formatTransposed(cols: string[], rows: Record<string, any>[], totalRows: number, note: string): string {
+function formatTransposed(cols: string[], rows: SqlRow[], totalRows: number, note: string): string {
   const MAX_COL_NAME = 24;
   const MAX_CELL = 36;
   const MAX_DISPLAY = 10;
@@ -120,8 +130,8 @@ function formatTransposed(cols: string[], rows: Record<string, any>[], totalRows
     return label.length > 22 ? label.slice(0, 19) + "…" : label;
   });
 
-  const colWidth = Math.min(MAX_COL_NAME, Math.max(...cols.map(c => c.length)));
-  const cellWidths = rowHeaders.map(h => Math.min(MAX_CELL, h.length));
+  const colWidth = Math.min(MAX_COL_NAME, Math.max(...cols.map((c) => c.length)));
+  const cellWidths = rowHeaders.map((h) => Math.min(MAX_CELL, h.length));
 
   const cell = (val: unknown, w: number): string => {
     const s = val === null ? "NULL" : String(val);
@@ -131,8 +141,15 @@ function formatTransposed(cols: string[], rows: Record<string, any>[], totalRows
 
   const lines: string[] = [];
 
-  lines.push("  " + "".padEnd(colWidth) + " │ " + rowHeaders.map((h, i) => cell(h, cellWidths[i])).join(" │ "));
-  lines.push("  " + "─".repeat(colWidth) + "─┼─" + cellWidths.map(w => "─".repeat(w)).join("─┼─"));
+  lines.push(
+    "  " +
+      "".padEnd(colWidth) +
+      " │ " +
+      rowHeaders.map((h, i) => cell(h, cellWidths[i])).join(" │ "),
+  );
+  lines.push(
+    "  " + "─".repeat(colWidth) + "─┼─" + cellWidths.map((w) => "─".repeat(w)).join("─┼─"),
+  );
 
   for (const col of cols) {
     const vals = displayRows.map((row, i) => cell(row[col], cellWidths[i]));
@@ -149,10 +166,10 @@ function formatTransposed(cols: string[], rows: Record<string, any>[], totalRows
 
 // ====== Vertical key-value per row (> 8 cols & > 10 rows) ======
 
-function formatVertical(cols: string[], rows: Record<string, any>[], totalRows: number, note: string): string {
+function formatVertical(cols: string[], rows: SqlRow[], totalRows: number, note: string): string {
   const MAX_DISPLAY = 5;
   const displayRows = rows.slice(0, MAX_DISPLAY);
-  const labelWidth = Math.min(28, Math.max(...cols.map(c => c.length)));
+  const labelWidth = Math.min(28, Math.max(...cols.map((c) => c.length)));
 
   const lines: string[] = [];
   for (let i = 0; i < displayRows.length; i++) {

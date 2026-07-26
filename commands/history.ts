@@ -14,10 +14,7 @@ export async function handleHistory(
     const entries = ws.listHistory(keyword);
 
     if (entries.length === 0) {
-      ctx.ui.notify(
-        keyword ? `未找到包含 "${keyword}" 的查询历史` : "暂无查询历史",
-        "info",
-      );
+      ctx.ui.notify(keyword ? `未找到包含 "${keyword}" 的查询历史` : "暂无查询历史", "info");
       return;
     }
 

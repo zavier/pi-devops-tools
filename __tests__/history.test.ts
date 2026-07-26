@@ -36,12 +36,20 @@ describe("QueryHistoryStore", () => {
 
   it("lists entries newest first", () => {
     store.save({
-      connectionId: "c", environment: "e", database: "d",
-      sql: "SELECT 1", rowCount: 1, elapsed: "",
+      connectionId: "c",
+      environment: "e",
+      database: "d",
+      sql: "SELECT 1",
+      rowCount: 1,
+      elapsed: "",
     });
     store.save({
-      connectionId: "c", environment: "e", database: "d",
-      sql: "SELECT 2", rowCount: 2, elapsed: "",
+      connectionId: "c",
+      environment: "e",
+      database: "d",
+      sql: "SELECT 2",
+      rowCount: 2,
+      elapsed: "",
     });
 
     const entries = store.list({ limit: 10 });
@@ -51,12 +59,20 @@ describe("QueryHistoryStore", () => {
 
   it("filters by database", () => {
     store.save({
-      connectionId: "c", environment: "e", database: "a",
-      sql: "x", rowCount: 0, elapsed: "",
+      connectionId: "c",
+      environment: "e",
+      database: "a",
+      sql: "x",
+      rowCount: 0,
+      elapsed: "",
     });
     store.save({
-      connectionId: "c", environment: "e", database: "b",
-      sql: "y", rowCount: 0, elapsed: "",
+      connectionId: "c",
+      environment: "e",
+      database: "b",
+      sql: "y",
+      rowCount: 0,
+      elapsed: "",
     });
 
     expect(store.list({ database: "a" }).length).toBe(1);
@@ -65,12 +81,20 @@ describe("QueryHistoryStore", () => {
 
   it("filters by keyword", () => {
     store.save({
-      connectionId: "c", environment: "e", database: "d",
-      sql: "SELECT * FROM users", rowCount: 0, elapsed: "",
+      connectionId: "c",
+      environment: "e",
+      database: "d",
+      sql: "SELECT * FROM users",
+      rowCount: 0,
+      elapsed: "",
     });
     store.save({
-      connectionId: "c", environment: "e", database: "d",
-      sql: "SELECT * FROM orders", rowCount: 0, elapsed: "",
+      connectionId: "c",
+      environment: "e",
+      database: "d",
+      sql: "SELECT * FROM orders",
+      rowCount: 0,
+      elapsed: "",
     });
 
     expect(store.list({ keyword: "users" }).length).toBe(1);
@@ -80,8 +104,12 @@ describe("QueryHistoryStore", () => {
   it("respects the limit", () => {
     for (let i = 0; i < 10; i++) {
       store.save({
-        connectionId: "c", environment: "e", database: "d",
-        sql: `SELECT ${i}`, rowCount: 0, elapsed: "",
+        connectionId: "c",
+        environment: "e",
+        database: "d",
+        sql: `SELECT ${i}`,
+        rowCount: 0,
+        elapsed: "",
       });
     }
     expect(store.list({ limit: 5 }).length).toBe(5);
@@ -89,8 +117,12 @@ describe("QueryHistoryStore", () => {
 
   it("deletes by id", () => {
     const entry = store.save({
-      connectionId: "c", environment: "e", database: "d",
-      sql: "x", rowCount: 0, elapsed: "",
+      connectionId: "c",
+      environment: "e",
+      database: "d",
+      sql: "x",
+      rowCount: 0,
+      elapsed: "",
     });
     expect(store.delete(entry.id)).toBe(true);
     expect(store.delete(9999)).toBe(false);

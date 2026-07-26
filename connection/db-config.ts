@@ -50,9 +50,7 @@ function resolveEnvVars(value: string): string {
   return value.replace(/\$\{(\w+)\}/g, (_, name: string) => {
     const envVal = process.env[name];
     if (envVal === undefined) {
-      throw new Error(
-        `Environment variable '${name}' referenced in connections.yaml but not set`
-      );
+      throw new Error(`Environment variable '${name}' referenced in connections.yaml but not set`);
     }
     return envVal;
   });
@@ -90,9 +88,7 @@ export function loadConnectionsConfig(configPath?: string): ResolvedConnectionCo
     const c = cfg as ConnectionConfig;
 
     if (!c.environment || !c.type || !c.host) {
-      throw new Error(
-        `Connection '${id}' missing required fields (environment, type, host)`
-      );
+      throw new Error(`Connection '${id}' missing required fields (environment, type, host)`);
     }
 
     resolved.push({
@@ -115,4 +111,3 @@ export function loadConnectionsConfig(configPath?: string): ResolvedConnectionCo
 export function getConnectionsConfigPath(configPath?: string): string {
   return configPath ?? DEFAULT_PATH;
 }
-

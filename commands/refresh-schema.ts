@@ -25,8 +25,5 @@ export async function handleRefreshSchema(
     return;
   }
 
-  ctx.ui.notify(
-    `已缓存 ${snapshot.tables.length} 个表结构（${ws.current!.database}）`,
-    "info",
-  );
+  ctx.ui.notify(`已缓存 ${snapshot.tables.length} 个表结构（${ws.current!.database}）`, "info");
 }

@@ -72,17 +72,23 @@ export class RelationStore {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
-      rel.schema, rel.table, rel.column, rel.condition,
-      rel.refSchema, rel.refTable, rel.refColumn, rel.relationType,
+      rel.schema,
+      rel.table,
+      rel.column,
+      rel.condition,
+      rel.refSchema,
+      rel.refTable,
+      rel.refColumn,
+      rel.relationType,
     );
     return this.getById(Number(result.lastInsertRowid))!;
   }
 
   /** Get a single relation by ID. */
   getById(id: number): RelationRow | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM table_relations WHERE id = ?")
-      .get(id) as Record<string, any> | undefined;
+    const row = this.db.prepare("SELECT * FROM table_relations WHERE id = ?").get(id) as
+      | Record<string, any>
+      | undefined;
     if (!row) return undefined;
     return this.rowToRelation(row);
   }
@@ -97,10 +103,22 @@ export class RelationStore {
     const conditions: string[] = [];
     const params: any[] = [];
 
-    if (filter?.schema) { conditions.push("schema = ?"); params.push(filter.schema); }
-    if (filter?.table) { conditions.push("table_name = ?"); params.push(filter.table); }
-    if (filter?.refSchema) { conditions.push("ref_schema = ?"); params.push(filter.refSchema); }
-    if (filter?.refTable) { conditions.push("ref_table = ?"); params.push(filter.refTable); }
+    if (filter?.schema) {
+      conditions.push("schema = ?");
+      params.push(filter.schema);
+    }
+    if (filter?.table) {
+      conditions.push("table_name = ?");
+      params.push(filter.table);
+    }
+    if (filter?.refSchema) {
+      conditions.push("ref_schema = ?");
+      params.push(filter.refSchema);
+    }
+    if (filter?.refTable) {
+      conditions.push("ref_table = ?");
+      params.push(filter.refTable);
+    }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -108,14 +126,12 @@ export class RelationStore {
       .prepare(`SELECT * FROM table_relations ${where} ORDER BY id ASC`)
       .all(...params) as Record<string, any>[];
 
-    return rows.map(r => this.rowToRelation(r));
+    return rows.map((r) => this.rowToRelation(r));
   }
 
   /** Delete a relation by ID. */
   delete(id: number): boolean {
-    const result = this.db
-      .prepare("DELETE FROM table_relations WHERE id = ?")
-      .run(id);
+    const result = this.db.prepare("DELETE FROM table_relations WHERE id = ?").run(id);
     return result.changes > 0;
   }
 
@@ -123,7 +139,10 @@ export class RelationStore {
   count(filter?: { schema?: string }): number {
     const params: any[] = [];
     let where = "";
-    if (filter?.schema) { where = "WHERE schema = ?"; params.push(filter.schema); }
+    if (filter?.schema) {
+      where = "WHERE schema = ?";
+      params.push(filter.schema);
+    }
     const row = this.db
       .prepare(`SELECT COUNT(*) as cnt FROM table_relations ${where}`)
       .get(...params) as { cnt: number };

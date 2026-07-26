@@ -25,10 +25,7 @@ interface AutocompleteItem {
 
 // ====== Command registration ======
 
-export function registerDbCommand(
-  pi: ExtensionAPI,
-  ws: DatabaseWorkspaceService,
-): void {
+export function registerDbCommand(pi: ExtensionAPI, ws: DatabaseWorkspaceService): void {
   pi.registerCommand("db", {
     description:
       "Database workspace: /db (panel) | /db switch | /db tables | /db schema <table> | /db query [table] | /db history | /db favorite | /db relations | /db refresh-schema",
@@ -84,7 +81,16 @@ async function getCompletions(
   prefix: string,
   ws: DatabaseWorkspaceService,
 ): Promise<AutocompleteItem[] | null> {
-  const subcommands = ["switch", "tables", "schema", "query", "history", "favorite", "relations", "refresh-schema"];
+  const subcommands = [
+    "switch",
+    "tables",
+    "schema",
+    "query",
+    "history",
+    "favorite",
+    "relations",
+    "refresh-schema",
+  ];
   const parts = prefix.trim().split(/\s+/);
   const hasTrailingSpace = prefix.endsWith(" ");
 

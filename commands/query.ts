@@ -56,7 +56,11 @@ async function displayQueryResult(
   result: ExecutedResult,
   related: RelatedResult[] = [],
 ): Promise<void> {
-  try { ws.saveHistory(result.sql, result.rows.length, result.elapsed); } catch { /* non-fatal */ }
+  try {
+    ws.saveHistory(result.sql, result.rows.length, result.elapsed);
+  } catch {
+    /* non-fatal */
+  }
 
   const lines = [
     `═══ 查询 — ${ws.current!.database} ═══`,
@@ -110,23 +114,20 @@ async function queryByTable(
   pi: ExtensionAPI,
   preSelectedTable?: string,
 ): Promise<void> {
-  const table = preSelectedTable ?? await pickTable(ctx, ws, "选择数据表");
+  const table = preSelectedTable ?? (await pickTable(ctx, ws, "选择数据表"));
   if (!table) return;
 
-  const where = await ctx.ui.input(
-    `WHERE 条件（可选，回车跳过）`,
-    "",
-  );
+  const where = await ctx.ui.input(`WHERE 条件（可选，回车跳过）`, "");
   if (where === undefined) return;
 
   const hasRelations = ws.listRelations(table).length > 0;
 
   let autoJoin = false;
   if (hasRelations) {
-    const choice = await ctx.ui.select(
-      "查询关联表？",
-      ["📎 是，一起查询关联表", "📋 否，只查主表"],
-    );
+    const choice = await ctx.ui.select("查询关联表？", [
+      "📎 是，一起查询关联表",
+      "📋 否，只查主表",
+    ]);
     if (choice === undefined) return;
     autoJoin = choice.startsWith("📎");
   }
@@ -180,7 +181,11 @@ export async function handleQuery(
 
   if (tableArg) {
     let tables: string[];
-    try { tables = await ws.getTables(); } catch { tables = []; }
+    try {
+      tables = await ws.getTables();
+    } catch {
+      tables = [];
+    }
     if (tables.includes(tableArg)) {
       return await queryByTable(ctx, ws, pi, tableArg);
     }

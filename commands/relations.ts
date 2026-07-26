@@ -14,10 +14,7 @@ import { pickTable } from "./utils";
 function formatRelationsList(rows: RelationRow[]): string {
   if (rows.length === 0) return "暂无表关联关系。";
 
-  const lines = [
-    `═══ 表关联关系 — ${rows.length} 条 ═══`,
-    "",
-  ];
+  const lines = [`═══ 表关联关系 — ${rows.length} 条 ═══`, ""];
 
   for (const r of rows) {
     const src = `${r.schema}.${r.table_name}.${r.column_name}`;
@@ -86,10 +83,7 @@ async function handleRelationsList(
   );
 
   if (action === "🗑 删除") {
-    const confirm = await ctx.ui.select(
-      `确认删除这个关系？`,
-      ["取消", "确认删除"],
-    );
+    const confirm = await ctx.ui.select(`确认删除这个关系？`, ["取消", "确认删除"]);
     if (confirm === "确认删除") {
       ws.removeRelation(entry.id);
       ctx.ui.notify(
@@ -145,17 +139,18 @@ async function handleRelationsAdd(
   const condition = await ctx.ui.input("关联条件（可选，如 type=1，回车跳过）", "");
   if (condition === undefined) return;
 
-  const relationType = await ctx.ui.select(
-    "关系类型",
-    ["MANY_TO_ONE", "ONE_TO_MANY", "ONE_TO_ONE", "MANY_TO_MANY"],
-  );
+  const relationType = await ctx.ui.select("关系类型", [
+    "MANY_TO_ONE",
+    "ONE_TO_MANY",
+    "ONE_TO_ONE",
+    "MANY_TO_MANY",
+  ]);
   if (!relationType) return;
 
-  const row = ws.registerRelation(
-    srcTable, srcCol,
-    refTable, refCol,
-    { condition: condition.trim() || undefined, relationType },
-  );
+  const row = ws.registerRelation(srcTable, srcCol, refTable, refCol, {
+    condition: condition.trim() || undefined,
+    relationType,
+  });
 
   ctx.ui.notify(
     `已添加关系 #${row.id}: ${srcTable}.${srcCol} → ${refTable}.${refCol} (${relationType})`,
@@ -224,14 +219,15 @@ async function handleRelationsDiscover(
   if (fkCount > 0) parts.push(`发现 ${fkCount} 个外键关系，已自动保存`);
   else parts.push("未发现外键关系");
 
-  const useAI = await ctx.ui.select(
-    "是否使用 AI 分析表关系？",
-    ["🤖 是，AI 分析", "⏭ 跳过"],
-  );
+  const useAI = await ctx.ui.select("是否使用 AI 分析表关系？", ["🤖 是，AI 分析", "⏭ 跳过"]);
 
   if (useAI?.startsWith("🤖")) {
     let tables: string[];
-    try { tables = await ws.getTables(); } catch { tables = []; }
+    try {
+      tables = await ws.getTables();
+    } catch {
+      tables = [];
+    }
 
     if (tables.length > 0) {
       const erLines: string[] = ["erDiagram"];
@@ -363,8 +359,5 @@ async function handleRelationsERDiagram(
 
   const erDiagram = lines.join("\n");
 
-  ctx.ui.notify(
-    `═══ ER 图 — ${table} ═══\n\n${erDiagram}`,
-    "info",
-  );
+  ctx.ui.notify(`═══ ER 图 — ${table} ═══\n\n${erDiagram}`, "info");
 }

@@ -18,10 +18,7 @@ function formatFavoriteList(entries: FavoriteEntry[], currentDb?: string): strin
   }
 
   const scope = currentDb ? `（${currentDb} + 全局）` : "（全局）";
-  const lines = [
-    `═══ 收藏查询 ${scope} — ${entries.length} 条 ═══`,
-    "",
-  ];
+  const lines = [`═══ 收藏查询 ${scope} — ${entries.length} 条 ═══`, ""];
 
   for (const e of entries) {
     const sql = e.sql.length > 55 ? e.sql.slice(0, 52) + "..." : e.sql;
@@ -110,10 +107,7 @@ async function handleFavoriteList(
   const entries = ws.listFavorites();
 
   if (entries.length === 0) {
-    ctx.ui.notify(
-      formatFavoriteList([], ws.current?.database),
-      "info",
-    );
+    ctx.ui.notify(formatFavoriteList([], ws.current?.database), "info");
     return;
   }
 
@@ -130,10 +124,11 @@ async function handleFavoriteList(
   const idx = labels.indexOf(choice);
   const entry = entries[idx];
 
-  const action = await ctx.ui.select(
-    `#${entry.id} ${entry.name}`,
-    ["▶ 直接执行", "✏️ 编辑后执行", "🗑 删除"],
-  );
+  const action = await ctx.ui.select(`#${entry.id} ${entry.name}`, [
+    "▶ 直接执行",
+    "✏️ 编辑后执行",
+    "🗑 删除",
+  ]);
   if (!action) return;
 
   if (action === "▶ 直接执行") {
@@ -145,10 +140,7 @@ async function handleFavoriteList(
     // No pre-validation — the executor enforces the read-only guard.
     await executeAndDisplay(ctx, ws, pi, editedSql.trim());
   } else if (action === "🗑 删除") {
-    const confirm = await ctx.ui.select(
-      `确认删除 "${entry.name}"？`,
-      ["取消", "确认删除"],
-    );
+    const confirm = await ctx.ui.select(`确认删除 "${entry.name}"？`, ["取消", "确认删除"]);
     if (confirm === "确认删除") {
       ws.deleteFavorite(entry.id);
       ctx.ui.notify(`已删除收藏 #${entry.id} "${entry.name}"`, "info");

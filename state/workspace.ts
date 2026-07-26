@@ -15,10 +15,16 @@ import {
   type ResolvedConnectionConfig,
 } from "../connection/db-config";
 import { DatabaseConnectionManager } from "../connection/db-manager";
-import { QueryHistoryStore, FavoriteStore, type HistoryEntry, type FavoriteEntry } from "../history/store";
+import {
+  QueryHistoryStore,
+  FavoriteStore,
+  type HistoryEntry,
+  type FavoriteEntry,
+  type HistoryFilter,
+} from "../history/store";
 import { RelationGraph } from "../relation-graph";
 import type { RelationRow } from "../relation/store";
-import type { RelatedResult } from "../types";
+import type { RelatedResult, SqlRow } from "../types";
 import type { SchemaSnapshot } from "../schema/cache";
 import {
   loadSchemaCache,
@@ -157,19 +163,26 @@ export class DatabaseWorkspaceService {
 
   async getTables(): Promise<string[]> {
     if (!this.current) throw new Error("No database selected");
-    const cached = getCachedTables(this.current.connectionId, this.current.database, this.store.baseDir);
+    const cached = getCachedTables(
+      this.current.connectionId,
+      this.current.database,
+      this.store.baseDir,
+    );
     if (cached) return cached;
     return this.manager.getTables(this.current.connectionId, this.current.database);
   }
 
   // ── Table schema (cache-first) ─────────────────────────────────
 
-  async getTableSchema(
-    table: string,
-  ): Promise<{ columns: Record<string, any>[]; indexes: Record<string, any>[] }> {
+  async getTableSchema(table: string): Promise<{ columns: SqlRow[]; indexes: SqlRow[] }> {
     if (!this.current) throw new Error("No database selected");
 
-    const cached = getCachedTableSchema(this.current.connectionId, this.current.database, table, this.store.baseDir);
+    const cached = getCachedTableSchema(
+      this.current.connectionId,
+      this.current.database,
+      table,
+      this.store.baseDir,
+    );
     if (cached) {
       return {
         columns: cached.columns.map((c) => ({
@@ -204,14 +217,19 @@ export class DatabaseWorkspaceService {
 
   async refreshSchema(): Promise<SchemaSnapshot> {
     if (!this.current) throw new Error("No database selected");
-    return refreshSchemaCache(this.manager, this.current.connectionId, this.current.database, this.store.baseDir);
+    return refreshSchemaCache(
+      this.manager,
+      this.current.connectionId,
+      this.current.database,
+      this.store.baseDir,
+    );
   }
 
   // ── Query ──────────────────────────────────────────────────────
 
   async executeQuery(
     sql: string,
-  ): Promise<{ columns: string[]; rows: Record<string, any>[]; elapsed: string; sql: string }> {
+  ): Promise<{ columns: string[]; rows: SqlRow[]; elapsed: string; sql: string }> {
     if (!this.current) throw new Error("No database selected");
     return this.manager.executeQuery(this.current.connectionId, this.current.database, sql);
   }
@@ -224,7 +242,7 @@ export class DatabaseWorkspaceService {
     relatedLimit = 10,
   ): Promise<{
     columns: string[];
-    rows: Record<string, any>[];
+    rows: SqlRow[];
     elapsed: string;
     sql: string;
     related: RelatedResult[];
@@ -270,9 +288,9 @@ export class DatabaseWorkspaceService {
   }
 
   listHistory(keyword?: string): HistoryEntry[] {
-    const filter: { limit: number; keyword?: string } = { limit: 20 };
+    const filter: HistoryFilter = { limit: 20 };
     if (keyword) filter.keyword = keyword;
-    if (this.current) (filter as any).database = this.current.database;
+    if (this.current) filter.database = this.current.database;
     return this.history.list(filter);
   }
 
@@ -306,8 +324,10 @@ export class DatabaseWorkspaceService {
   }
 
   registerRelation(
-    sourceTable: string, sourceColumn: string,
-    refTable: string, refColumn: string,
+    sourceTable: string,
+    sourceColumn: string,
+    refTable: string,
+    refColumn: string,
     opts?: { condition?: string; relationType?: string },
   ): RelationRow {
     if (!this.current) throw new Error("No database selected");

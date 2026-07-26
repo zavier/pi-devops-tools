@@ -32,7 +32,14 @@ export async function handleSchema(
 
   const colRows = result.columns.map((c) => {
     const nullable = c.IS_NULLABLE === "YES" ? "N" : "";
-    const key = c.COLUMN_KEY === "PRI" ? "PK" : c.COLUMN_KEY === "MUL" ? "FK" : c.COLUMN_KEY === "UNI" ? "UQ" : "";
+    const key =
+      c.COLUMN_KEY === "PRI"
+        ? "PK"
+        : c.COLUMN_KEY === "MUL"
+          ? "FK"
+          : c.COLUMN_KEY === "UNI"
+            ? "UQ"
+            : "";
     const def = c.COLUMN_DEFAULT ?? "";
     const extra = c.EXTRA ?? "";
     const comment = c.COLUMN_COMMENT ?? "";
@@ -57,10 +64,11 @@ export async function handleSchema(
     ...colRows,
     "",
     `索引（${idxMap.size}）：`,
-    ...([...idxMap.entries()].map(([name, cols]) => {
-      const unique = result.indexes.find((i) => i.INDEX_NAME === name)?.NON_UNIQUE === 0 ? " [UNIQUE]" : "";
+    ...[...idxMap.entries()].map(([name, cols]) => {
+      const unique =
+        result.indexes.find((i) => i.INDEX_NAME === name)?.NON_UNIQUE === 0 ? " [UNIQUE]" : "";
       return `  ${name}${unique}: ${cols.join(", ")}`;
-    })),
+    }),
     "",
   ].join("\n");
 

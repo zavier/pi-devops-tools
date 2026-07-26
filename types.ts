@@ -1,3 +1,11 @@
+// ====== 通用类型 ======
+
+/** MySQL/SQLite 查询结果中单个字段的运行时类型。 */
+export type SqlValue = string | number | boolean | null;
+
+/** 查询结果行 — 列名到 SqlValue 的映射。 */
+export type SqlRow = Record<string, SqlValue>;
+
 // ====== 关系图类型 ======
 
 export interface ColumnRef {
@@ -24,7 +32,7 @@ export interface RelatedResult {
   schema: string;
   table: string;
   columns: string[];
-  rows: Record<string, any>[];
+  rows: SqlRow[];
   rowCount: number;
   joinPath: string;
   elapsed: string;

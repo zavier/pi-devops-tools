@@ -1,6 +1,6 @@
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { DatabaseWorkspaceService } from './state/workspace';
-import { registerDbCommand, restoreStatusBar } from './commands/db';
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { DatabaseWorkspaceService } from "./state/workspace";
+import { registerDbCommand, restoreStatusBar } from "./commands/db";
 
 export default function (pi: ExtensionAPI) {
   // ---- Database Workspace ----
@@ -10,12 +10,12 @@ export default function (pi: ExtensionAPI) {
   registerDbCommand(pi, workspace);
 
   // Restore status bar on session start
-  pi.on('session_start', (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     restoreStatusBar(workspace, ctx);
   });
 
   // Clean up on shutdown
-  pi.on('session_shutdown', () => {
+  pi.on("session_shutdown", () => {
     workspace.destroy();
   });
 }

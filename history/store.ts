@@ -86,9 +86,9 @@ export class QueryHistoryStore {
 
   /** Get a single entry by ID. */
   getById(id: number): HistoryEntry | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM query_history WHERE id = ?")
-      .get(id) as Record<string, any> | undefined;
+    const row = this.db.prepare("SELECT * FROM query_history WHERE id = ?").get(id) as
+      | Record<string, any>
+      | undefined;
 
     if (!row) return undefined;
     return this.rowToEntry(row);
@@ -118,9 +118,7 @@ export class QueryHistoryStore {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const rows = this.db
-      .prepare(
-        `SELECT * FROM query_history ${where} ORDER BY created_time DESC, id DESC LIMIT ?`,
-      )
+      .prepare(`SELECT * FROM query_history ${where} ORDER BY created_time DESC, id DESC LIMIT ?`)
       .all(...params, limit) as Record<string, any>[];
 
     return rows.map((r) => this.rowToEntry(r));
@@ -128,9 +126,7 @@ export class QueryHistoryStore {
 
   /** Delete an entry by ID. */
   delete(id: number): boolean {
-    const result = this.db
-      .prepare("DELETE FROM query_history WHERE id = ?")
-      .run(id);
+    const result = this.db.prepare("DELETE FROM query_history WHERE id = ?").run(id);
     return result.changes > 0;
   }
 
@@ -176,14 +172,14 @@ export interface FavoriteEntry {
   id: number;
   name: string;
   sql: string;
-  database: string;   // '' = global
+  database: string; // '' = global
   description: string;
   createdTime: string;
   updatedTime: string;
 }
 
 export interface FavoriteFilter {
-  database?: string;  // also includes global (database = '')
+  database?: string; // also includes global (database = '')
   keyword?: string;
   limit?: number;
 }
@@ -238,9 +234,9 @@ export class FavoriteStore {
 
   /** Get by ID. */
   getById(id: number): FavoriteEntry | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM query_favorites WHERE id = ?")
-      .get(id) as Record<string, any> | undefined;
+    const row = this.db.prepare("SELECT * FROM query_favorites WHERE id = ?").get(id) as
+      | Record<string, any>
+      | undefined;
     if (!row) return undefined;
     return this.rowToEntry(row);
   }
@@ -264,40 +260,46 @@ export class FavoriteStore {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const rows = this.db
-      .prepare(
-        `SELECT * FROM query_favorites ${where} ORDER BY updated_time DESC, id DESC LIMIT ?`
-      )
+      .prepare(`SELECT * FROM query_favorites ${where} ORDER BY updated_time DESC, id DESC LIMIT ?`)
       .all(...params, limit) as Record<string, any>[];
 
     return rows.map((r) => this.rowToEntry(r));
   }
 
   /** Update a favorite's name, sql, and/or description. */
-  update(id: number, fields: { name?: string; sql?: string; description?: string }): FavoriteEntry | undefined {
+  update(
+    id: number,
+    fields: { name?: string; sql?: string; description?: string },
+  ): FavoriteEntry | undefined {
     const sets: string[] = [];
     const params: any[] = [];
 
-    if (fields.name !== undefined) { sets.push("name = ?"); params.push(fields.name); }
-    if (fields.sql !== undefined) { sets.push("sql = ?"); params.push(fields.sql); }
-    if (fields.description !== undefined) { sets.push("description = ?"); params.push(fields.description); }
+    if (fields.name !== undefined) {
+      sets.push("name = ?");
+      params.push(fields.name);
+    }
+    if (fields.sql !== undefined) {
+      sets.push("sql = ?");
+      params.push(fields.sql);
+    }
+    if (fields.description !== undefined) {
+      sets.push("description = ?");
+      params.push(fields.description);
+    }
 
     if (sets.length === 0) return this.getById(id);
 
     sets.push("updated_time = datetime('now')");
     params.push(id);
 
-    this.db
-      .prepare(`UPDATE query_favorites SET ${sets.join(", ")} WHERE id = ?`)
-      .run(...params);
+    this.db.prepare(`UPDATE query_favorites SET ${sets.join(", ")} WHERE id = ?`).run(...params);
 
     return this.getById(id);
   }
 
   /** Delete a favorite by ID. */
   delete(id: number): boolean {
-    const result = this.db
-      .prepare("DELETE FROM query_favorites WHERE id = ?")
-      .run(id);
+    const result = this.db.prepare("DELETE FROM query_favorites WHERE id = ?").run(id);
     return result.changes > 0;
   }
 

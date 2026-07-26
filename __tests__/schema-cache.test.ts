@@ -17,7 +17,10 @@ describe("schema cache", () => {
   let baseDir: string;
 
   beforeEach(() => {
-    baseDir = join(tmpdir(), `schema-cache-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    baseDir = join(
+      tmpdir(),
+      `schema-cache-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     mkdirSync(baseDir, { recursive: true });
   });
 
@@ -50,9 +53,7 @@ describe("schema cache", () => {
             comment: "",
           },
         ],
-        indexes: [
-          { name: "PRIMARY", columns: ["id"], unique: true },
-        ],
+        indexes: [{ name: "PRIMARY", columns: ["id"], unique: true }],
       },
     ],
     refreshedAt: "2026-07-26T12:00:00.000Z",
