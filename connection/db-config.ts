@@ -6,10 +6,10 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { load as parseYaml } from "js-yaml";
 import { DEFAULT_QUERY_LIMIT } from "./sql-policy";
+import { homedir } from "node:os";
 
 // ====== Config file types ======
 
@@ -44,8 +44,7 @@ export interface ResolvedConnectionConfig {
 
 // ====== Paths ======
 
-const CONFIG_DIR = join(homedir(), ".pi", "database");
-const CONFIG_FILE = join(CONFIG_DIR, "connections.yaml");
+const DEFAULT_PATH = join(homedir(), ".pi", "database", "connections.yaml");
 
 function resolveEnvVars(value: string): string {
   return value.replace(/\$\{(\w+)\}/g, (_, name: string) => {
@@ -64,12 +63,13 @@ function resolveEnvVars(value: string): string {
  * Returns empty array if the file doesn't exist (first-time setup).
  * Throws only if the file exists but is malformed.
  */
-export function loadConnectionsConfig(): ResolvedConnectionConfig[] {
-  if (!existsSync(CONFIG_FILE)) {
+export function loadConnectionsConfig(configPath?: string): ResolvedConnectionConfig[] {
+  const path = configPath ?? DEFAULT_PATH;
+  if (!existsSync(path)) {
     return [];
   }
 
-  const raw = readFileSync(CONFIG_FILE, "utf-8");
+  const raw = readFileSync(path, "utf-8");
   if (raw.trim() === "") {
     return [];
   }
@@ -112,7 +112,7 @@ export function loadConnectionsConfig(): ResolvedConnectionConfig[] {
 }
 
 /** Path to the connections config file, for use in help messages. */
-export function getConnectionsConfigPath(): string {
-  return CONFIG_FILE;
+export function getConnectionsConfigPath(configPath?: string): string {
+  return configPath ?? DEFAULT_PATH;
 }
 

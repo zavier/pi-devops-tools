@@ -12,12 +12,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseConnectionManager } from "../connection/db-manager";
 
-// ====== Paths ======
+// ====== Path helper ======
 
-const SCHEMA_DIR = join(homedir(), ".pi", "database", "schema");
+const DEFAULT_BASE = join(homedir(), ".pi", "database");
 
-function cachePath(connectionId: string, database: string): string {
-  return join(SCHEMA_DIR, connectionId, `${database}.json`);
+function cachePath(connectionId: string, database: string, baseDir?: string): string {
+  return join(baseDir ?? DEFAULT_BASE, "schema", connectionId, `${database}.json`);
 }
 
 // ====== Types ======
@@ -53,9 +53,9 @@ export interface SchemaSnapshot {
 // ====== Cache operations ======
 
 /** Load a cached schema snapshot. Returns null if not cached. */
-export function loadSchemaCache(connectionId: string, database: string): SchemaSnapshot | null {
+export function loadSchemaCache(connectionId: string, database: string, baseDir?: string): SchemaSnapshot | null {
   try {
-    const path = cachePath(connectionId, database);
+    const path = cachePath(connectionId, database, baseDir);
     if (!existsSync(path)) return null;
 
     const raw = readFileSync(path, "utf-8");
@@ -71,17 +71,16 @@ export function loadSchemaCache(connectionId: string, database: string): SchemaS
 }
 
 /** Save a schema snapshot to the cache. */
-export function saveSchemaCache(snapshot: SchemaSnapshot, connectionId: string): void {
-  const dir = join(SCHEMA_DIR, connectionId);
+export function saveSchemaCache(snapshot: SchemaSnapshot, connectionId: string, baseDir?: string): void {
+  const path = cachePath(connectionId, snapshot.database, baseDir);
+  const dir = join(path, "..");
   mkdirSync(dir, { recursive: true });
-
-  const path = cachePath(connectionId, snapshot.database);
   writeFileSync(path, JSON.stringify(snapshot, null, 2));
 }
 
 /** Get cached table list (fast, no DB query). Returns null if not cached. */
-export function getCachedTables(connectionId: string, database: string): string[] | null {
-  const cache = loadSchemaCache(connectionId, database);
+export function getCachedTables(connectionId: string, database: string, baseDir?: string): string[] | null {
+  const cache = loadSchemaCache(connectionId, database, baseDir);
   if (!cache) return null;
   return cache.tables.map((t) => t.name);
 }
@@ -91,8 +90,9 @@ export function getCachedTableSchema(
   connectionId: string,
   database: string,
   table: string,
+  baseDir?: string,
 ): CachedTable | null {
-  const cache = loadSchemaCache(connectionId, database);
+  const cache = loadSchemaCache(connectionId, database, baseDir);
   if (!cache) return null;
   return cache.tables.find((t) => t.name === table) ?? null;
 }
@@ -105,6 +105,7 @@ export async function refreshSchemaCache(
   manager: DatabaseConnectionManager,
   connectionId: string,
   database: string,
+  baseDir?: string,
 ): Promise<SchemaSnapshot> {
   const tables = await manager.getTables(connectionId, database);
 
@@ -158,6 +159,6 @@ export async function refreshSchemaCache(
     refreshedAt: new Date().toISOString(),
   };
 
-  saveSchemaCache(snapshot, connectionId);
+  saveSchemaCache(snapshot, connectionId, baseDir);
   return snapshot;
 }

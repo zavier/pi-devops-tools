@@ -5,15 +5,7 @@
  * Table: query_history
  */
 
-import Database from "better-sqlite3";
-import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
-// ====== Paths ======
-
-const DATA_DIR = join(homedir(), ".pi", "database");
-const DB_PATH = join(DATA_DIR, "history.db");
+import type Database from "better-sqlite3";
 
 // ====== Types ======
 
@@ -41,11 +33,8 @@ export class QueryHistoryStore {
   private db: Database.Database;
   private initialized = false;
 
-  constructor(dbPath?: string) {
-    const path = dbPath ?? DB_PATH;
-    mkdirSync(DATA_DIR, { recursive: true });
-    this.db = new Database(path);
-    this.db.pragma("journal_mode = WAL");
+  constructor(db: Database.Database) {
+    this.db = db;
     this.init();
   }
 
@@ -165,16 +154,6 @@ export class QueryHistoryStore {
       .get(...params) as { cnt: number };
 
     return row.cnt;
-  }
-
-  /** Get the underlying database instance (for sharing across stores). */
-  getDb(): Database.Database {
-    return this.db;
-  }
-
-  /** Close the database connection. */
-  close(): void {
-    this.db.close();
   }
 
   private rowToEntry(row: Record<string, any>): HistoryEntry {

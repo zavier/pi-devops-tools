@@ -8,7 +8,6 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RowDataPacket } from "mysql2/promise";
 import {
@@ -28,11 +27,7 @@ import {
   getCachedTables,
   getCachedTableSchema,
 } from "../schema/cache";
-
-// ====== Paths ======
-
-const STATE_DIR = join(homedir(), ".pi", "database");
-const STATE_FILE = join(STATE_DIR, "workspace.json");
+import { StateStore } from "./state-store";
 
 // ====== Internal types ======
 
@@ -44,10 +39,10 @@ interface WorkspaceState {
 
 // ====== Persistence helpers ======
 
-function loadWorkspace(): WorkspaceState | null {
+function loadWorkspace(filePath: string): WorkspaceState | null {
   try {
-    if (!existsSync(STATE_FILE)) return null;
-    const raw = readFileSync(STATE_FILE, "utf-8");
+    if (!existsSync(filePath)) return null;
+    const raw = readFileSync(filePath, "utf-8");
     const data = JSON.parse(raw);
     if (
       data &&
@@ -63,9 +58,10 @@ function loadWorkspace(): WorkspaceState | null {
   }
 }
 
-function saveWorkspace(state: WorkspaceState): void {
-  mkdirSync(STATE_DIR, { recursive: true });
-  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+function saveWorkspace(filePath: string, state: WorkspaceState): void {
+  const dir = join(filePath, "..");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(filePath, JSON.stringify(state, null, 2));
 }
 
 // ====== Service ======
@@ -73,6 +69,7 @@ function saveWorkspace(state: WorkspaceState): void {
 export class DatabaseWorkspaceService {
   // ── Private delegates ──────────────────────────────────────────
 
+  private store: StateStore;
   private connections: ResolvedConnectionConfig[];
   private manager: DatabaseConnectionManager;
   private history: QueryHistoryStore;
@@ -86,13 +83,14 @@ export class DatabaseWorkspaceService {
 
   // ── Constructor ────────────────────────────────────────────────
 
-  constructor() {
-    this.connections = loadConnectionsConfig();
+  constructor(state?: StateStore) {
+    this.store = state ?? new StateStore();
+    this.connections = loadConnectionsConfig(this.store.connectionsFile);
     this.manager = new DatabaseConnectionManager(this.connections);
-    this.history = new QueryHistoryStore();
-    this.favorites = new FavoriteStore(this.history.getDb());
-    this.relationGraph = new RelationGraph(this.history.getDb());
-    this.current = loadWorkspace();
+    this.history = new QueryHistoryStore(this.store.sqlite);
+    this.favorites = new FavoriteStore(this.store.sqlite);
+    this.relationGraph = new RelationGraph(this.store.sqlite);
+    this.current = loadWorkspace(this.store.workspaceFile);
   }
 
   // ── State checks ───────────────────────────────────────────────
@@ -106,7 +104,7 @@ export class DatabaseWorkspaceService {
   }
 
   get configPath(): string {
-    return getConnectionsConfigPath();
+    return getConnectionsConfigPath(this.store.connectionsFile);
   }
 
   get statusLabel(): string {
@@ -147,7 +145,7 @@ export class DatabaseWorkspaceService {
 
   switchTo(environment: string, connectionId: string, database: string): void {
     this.current = { environment, connectionId, database };
-    saveWorkspace(this.current);
+    saveWorkspace(this.store.workspaceFile, this.current);
   }
 
   // ── Databases (always live) ────────────────────────────────────
@@ -160,7 +158,7 @@ export class DatabaseWorkspaceService {
 
   async getTables(): Promise<string[]> {
     if (!this.current) throw new Error("No database selected");
-    const cached = getCachedTables(this.current.connectionId, this.current.database);
+    const cached = getCachedTables(this.current.connectionId, this.current.database, this.store.baseDir);
     if (cached) return cached;
     return this.manager.getTables(this.current.connectionId, this.current.database);
   }
@@ -172,7 +170,7 @@ export class DatabaseWorkspaceService {
   ): Promise<{ columns: Record<string, any>[]; indexes: Record<string, any>[] }> {
     if (!this.current) throw new Error("No database selected");
 
-    const cached = getCachedTableSchema(this.current.connectionId, this.current.database, table);
+    const cached = getCachedTableSchema(this.current.connectionId, this.current.database, table, this.store.baseDir);
     if (cached) {
       return {
         columns: cached.columns.map((c) => ({
@@ -202,12 +200,12 @@ export class DatabaseWorkspaceService {
 
   autoLoadSchema(): SchemaSnapshot | null {
     if (!this.current) return null;
-    return loadSchemaCache(this.current.connectionId, this.current.database);
+    return loadSchemaCache(this.current.connectionId, this.current.database, this.store.baseDir);
   }
 
   async refreshSchema(): Promise<SchemaSnapshot> {
     if (!this.current) throw new Error("No database selected");
-    return refreshSchemaCache(this.manager, this.current.connectionId, this.current.database);
+    return refreshSchemaCache(this.manager, this.current.connectionId, this.current.database, this.store.baseDir);
   }
 
   // ── Query ──────────────────────────────────────────────────────
@@ -365,6 +363,6 @@ export class DatabaseWorkspaceService {
 
   destroy(): void {
     this.manager.destroy();
-    this.history.close();
+    this.store.close();
   }
 }
