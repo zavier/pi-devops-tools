@@ -1,5 +1,5 @@
 /**
- * Result-table formatting — shared between /db command and query_database tool.
+ * Result-table formatting for /db query output.
  *
  * Exports one entry point (formatTableResult) plus analyzeColumns for callers
  * that need to inspect column stats separately.
