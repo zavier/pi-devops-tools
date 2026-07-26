@@ -114,12 +114,13 @@ executeQuery(connId, db, sql)
 
 纯函数模块，两个职责：
 
-| 函数 | 作用 |
-|------|------|
-| `READONLY_SQL_RE` | 正则匹配 SELECT / SHOW / DESCRIBE / EXPLAIN |
+| 函数                               | 作用                                          |
+| ---------------------------------- | --------------------------------------------- |
+| `READONLY_SQL_RE`                  | 正则匹配 SELECT / SHOW / DESCRIBE / EXPLAIN   |
 | `prepareReadOnlyQuery(sql, limit)` | 校验只读 → 未限定的 SELECT 自动追加 `LIMIT n` |
 
 **LIMIT 追加规则**：
+
 - `SELECT ... LIMIT n` → 不追加（已有）
 - `SELECT ... (subquery) LIMIT n` → 不追加（外层已有）
 - `SELECT ... FOR UPDATE` → 不追加（锁定读）
@@ -176,6 +177,7 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 ```
 
 **关键设计**：
+
 - `QueryFn` 解耦 — 图引擎不依赖 mysql2，只接受一个 `(sql, params) => rows` 函数签名，测试用 stub 替代
 - `visited` 集合防止环路 — 已访问的 `schema.table.column` 不会重复查询
 - 参数化查询 — `IN (?)` + mysql2 数组展开，无 SQL 注入风险
@@ -197,18 +199,19 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 
 所有数据在 `~/.pi/database/` 下：
 
-| 文件 | 格式 | 内容 |
-|------|------|------|
-| `workspace.json` | JSON | 当前选择的环境/连接/数据库 |
-| `connections.yaml` | YAML | 用户配置的数据库连接（支持 `${ENV}` 替换） |
-| `history.db` | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations` |
-| `schema/<connId>/<db>.json` | JSON | 表/列/索引快照，带 `refreshedAt` 时间戳 |
+| 文件                        | 格式         | 内容                                                          |
+| --------------------------- | ------------ | ------------------------------------------------------------- |
+| `workspace.json`            | JSON         | 当前选择的环境/连接/数据库                                    |
+| `connections.yaml`          | YAML         | 用户配置的数据库连接（支持 `${ENV}` 替换）                    |
+| `history.db`                | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations` |
+| `schema/<connId>/<db>.json` | JSON         | 表/列/索引快照，带 `refreshedAt` 时间戳                       |
 
 ## 四、关键设计决策
 
 ### 4.1 为什么是门面模式而不是每个命令独立调用？
 
 一个 `/db query` 的执行路径涉及 5 个模块协作：连接管理、SQL 策略、查询执行、结果格式化、历史记录。如果命令层直接调用这些模块：
+
 - 每个命令需要理解全部 5 个模块的接口
 - 模块间的协作逻辑分散在多个命令中
 - 修改内部架构需要改所有命令
@@ -233,6 +236,7 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
 ### 4.4 为什么缓存优先但不自动刷新？
 
 Schema 缓存（JSON 文件）读取快于 information_schema 查询，尤其是在远程数据库场景。但它不会自动过期 — 用户显式执行 `/db refresh-schema` 或切换数据库时才刷新。这样设计的考虑：
+
 - 自动过期需要跟踪 DDL 变更，需要额外的轮询或触发器
 - pi 终端会话通常针对同一 schema 连续工作，缓存新鲜度足够
 - 用户控制刷新时机，避免意外的网络延迟
@@ -299,13 +303,13 @@ Schema 缓存（JSON 文件）读取快于 information_schema 查询，尤其是
 
 ## 六、扩展点
 
-| 扩展场景 | 改动范围 | 说明 |
-|---------|---------|------|
-| 支持 PostgreSQL | 新增 `connection/pg-manager.ts`，实现相同接口 | `DatabaseConnectionManager` 接口已是隐式的 |
-| 新增子命令 | 在 `commands/` 下创建文件，在 `db.ts` 路由中注册 | 不需要改门面（如果现有方法够用） |
-| 替换 SQLite | 改 `StateStore` 构造函数 + 三个 Store 类 | Store 类对外接口不变 |
-| Schema 自动过期 | 在 `getTables()` 中加时间戳检查 | 不影响其他模块 |
-| 导出查询结果 | 在 `commands/` 下新增 handler | 纯 UI 层改动 |
+| 扩展场景        | 改动范围                                         | 说明                                       |
+| --------------- | ------------------------------------------------ | ------------------------------------------ |
+| 支持 PostgreSQL | 新增 `connection/pg-manager.ts`，实现相同接口    | `DatabaseConnectionManager` 接口已是隐式的 |
+| 新增子命令      | 在 `commands/` 下创建文件，在 `db.ts` 路由中注册 | 不需要改门面（如果现有方法够用）           |
+| 替换 SQLite     | 改 `StateStore` 构造函数 + 三个 Store 类         | Store 类对外接口不变                       |
+| Schema 自动过期 | 在 `getTables()` 中加时间戳检查                  | 不影响其他模块                             |
+| 导出查询结果    | 在 `commands/` 下新增 handler                    | 纯 UI 层改动                               |
 
 ## 七、代码质量保障
 
