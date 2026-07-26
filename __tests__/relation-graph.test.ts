@@ -1,10 +1,16 @@
 import { describe, it, expect } from "vitest";
+import Database from "better-sqlite3";
 import { RelationGraph } from "../relation-graph";
 import type { ColumnRef } from "../types";
 
+function createGraph(): RelationGraph {
+  const db = new Database(":memory:");
+  return new RelationGraph(db);
+}
+
 describe("RelationGraph", () => {
   it("registers and retrieves relations bidirectionally", () => {
-    const graph = new RelationGraph();
+    const graph = createGraph();
 
     const src: ColumnRef = { schema: "db1", table: "t_order", column: "user_id" };
     const tgt: ColumnRef = { schema: "db2", table: "t_user", column: "id" };
@@ -21,7 +27,7 @@ describe("RelationGraph", () => {
   });
 
   it("removes relations", () => {
-    const graph = new RelationGraph();
+    const graph = createGraph();
 
     const src: ColumnRef = { schema: "db1", table: "t_order", column: "user_id" };
     const tgt: ColumnRef = { schema: "db2", table: "t_user", column: "id" };
@@ -35,7 +41,7 @@ describe("RelationGraph", () => {
   });
 
   it("deduplicates when registering same relation twice", () => {
-    const graph = new RelationGraph();
+    const graph = createGraph();
     const src: ColumnRef = { schema: "a", table: "t1", column: "c1" };
     const tgt: ColumnRef = { schema: "a", table: "t2", column: "c2" };
 
@@ -47,7 +53,7 @@ describe("RelationGraph", () => {
   });
 
   it("filters list by schema and table", () => {
-    const graph = new RelationGraph();
+    const graph = createGraph();
     graph.register(
       { schema: "a", table: "t1", column: "c1" },
       { schema: "a", table: "t2", column: "c2" },

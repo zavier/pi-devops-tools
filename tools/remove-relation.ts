@@ -41,7 +41,7 @@ export function createRemoveRelationTool(graph: RelationGraph) {
           };
         }
 
-        graph.saveToFile();
+        graph.exportToJson();
 
         return {
           content: [{

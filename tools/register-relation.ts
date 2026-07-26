@@ -53,7 +53,7 @@ export function createRegisterRelationTool(graph: RelationGraph) {
           params.relationType ?? "MANY_TO_ONE"
         );
 
-        graph.saveToFile();
+        graph.exportToJson();
 
         const id = `${params.schema}.${params.table}.${params.column} -> ${params.refSchema}.${params.refTable}.${params.refColumn}`;
 

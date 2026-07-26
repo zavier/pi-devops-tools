@@ -14,6 +14,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { HistoryEntry, FavoriteEntry } from "../history/store";
+import type { RelationRow } from "../relation/store";
+import type { RelatedResult } from "../types";
 
 // AutocompleteItem matches @earendil-works/pi-tui's interface.
 // Defined locally to avoid a direct dependency on pi-tui.
@@ -35,7 +37,7 @@ export function registerDbCommand(
 ): void {
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | /db switch | /db tables | /db schema <table> | /db query [table] | /db history | /db favorite | /db refresh-schema",
+      "Database workspace: /db (panel) | /db switch | /db tables | /db schema <table> | /db query [table] | /db history | /db favorite | /db relations | /db refresh-schema",
 
     getArgumentCompletions: async (prefix) => {
       return getCompletions(prefix, ws);
@@ -66,12 +68,15 @@ export function registerDbCommand(
         case "favorite":
           await handleFavorite(ctx, ws, pi, rest);
           break;
+        case "relations":
+          await handleRelations(ctx, ws, pi, rest);
+          break;
         case "refresh-schema":
           await handleRefreshSchema(ctx, ws);
           break;
         default:
           ctx.ui.notify(
-            `未知命令: ${sub}。可用：switch, tables, schema, query, history, favorite, refresh-schema`,
+            `未知命令: ${sub}。可用：switch, tables, schema, query, history, favorite, relations, refresh-schema`,
             "warning",
           );
       }
@@ -85,7 +90,7 @@ async function getCompletions(
   prefix: string,
   ws: DatabaseWorkspaceService,
 ): Promise<AutocompleteItem[] | null> {
-  const subcommands = ["switch", "tables", "schema", "query", "history", "favorite", "refresh-schema"];
+  const subcommands = ["switch", "tables", "schema", "query", "history", "favorite", "relations", "refresh-schema"];
   const parts = prefix.trim().split(/\s+/);
   const hasTrailingSpace = prefix.endsWith(" ");
 
@@ -147,6 +152,7 @@ async function showWorkspacePanel(
   lines.push("  /db query [表名]    选表 → WHERE → 查询");
   lines.push("  /db history         查询历史");
   lines.push("  /db favorite        收藏的查询模板");
+  lines.push("  /db relations       表关联关系管理");
   lines.push("  /db refresh-schema  刷新表结构缓存");
 
   ctx.ui.notify(lines.join("\n"), "info");
@@ -542,6 +548,25 @@ async function pickTable(
 
 // ── Execute a query and display / inject results ────────────────
 
+function formatRelatedResults(related: RelatedResult[]): string {
+  if (related.length === 0) return "";
+
+  const lines: string[] = ["", "────── 关联表 ──────", ""];
+  for (const r of related) {
+    lines.push(`### ${r.schema}.${r.table}`);
+    lines.push(`关联路径：${r.joinPath}`);
+    lines.push(`行数：${r.rowCount}（${r.elapsed}）`);
+    lines.push("");
+    if (r.rows.length > 0) {
+      lines.push(formatResultTable(r.columns, r.rows));
+    } else {
+      lines.push("（空结果）");
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
 async function executeAndDisplay(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
@@ -578,6 +603,45 @@ async function executeAndDisplay(
   );
 }
 
+async function executeAndDisplayWithRelated(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
+  sql: string,
+  related: RelatedResult[],
+): Promise<void> {
+  let result: { columns: string[]; rows: Record<string, any>[]; elapsed: string };
+  try {
+    result = await ws.executeQuery(sql);
+  } catch (err: any) {
+    ctx.ui.notify(`查询出错：${err.message}`, "error");
+    return;
+  }
+
+  try { ws.saveHistory(sql, result.rows.length, result.elapsed); } catch { /* non-fatal */ }
+
+  const text = [
+    `═══ 查询 — ${ws.current!.database} ═══`,
+    `SQL：${sql}`,
+    `行数：${result.rows.length}（${result.elapsed}）`,
+    "",
+    formatResultTable(result.columns, result.rows),
+    formatRelatedResults(related),
+    `共查询 ${1 + related.length} 个表`,
+  ].join("\n");
+
+  ctx.ui.notify(text, "info");
+
+  pi.sendMessage(
+    {
+      customType: "db-query-result",
+      content: `[DB Query] ${ws.current!.database}: ${sql} → ${result.rows.length} rows + ${related.length} related tables (${result.elapsed})`,
+      display: false,
+    },
+    { deliverAs: "followUp", triggerTurn: false },
+  );
+}
+
 // ── Table-first query: pick table → WHERE → auto-generate SQL ───
 
 async function queryByTable(
@@ -595,13 +659,31 @@ async function queryByTable(
   );
   if (where === undefined) return; // cancelled
 
+  // Check if there are relations for this table
+  const hasRelations = ws.getRelations(table).length > 0;
+
+  let autoJoin = false;
+  if (hasRelations) {
+    const choice = await ctx.ui.select(
+      "查询关联表？",
+      ["📎 是，一起查询关联表", "📋 否，只查主表"],
+    );
+    if (choice === undefined) return;
+    autoJoin = choice.startsWith("📎");
+  }
+
   let sql = `SELECT * FROM \`${table}\``;
   if (where.trim()) {
     sql += ` WHERE ${where.trim()}`;
   }
   sql += ` LIMIT 100`;
 
-  await executeAndDisplay(ctx, ws, pi, sql);
+  if (autoJoin) {
+    const { columns, rows, elapsed, related } = await ws.executeQueryWithRelations(sql, table, true);
+    await executeAndDisplayWithRelated(ctx, ws, pi, sql, related);
+  } else {
+    await executeAndDisplay(ctx, ws, pi, sql);
+  }
 }
 
 // ── Raw SQL input ───────────────────────────────────────────────
@@ -900,6 +982,411 @@ async function handleFavoriteList(
       ctx.ui.notify(`已删除收藏 #${entry.id} "${entry.name}"`, "info");
     }
   }
+}
+
+// ====== Relations ======
+
+function formatRelationsList(rows: RelationRow[]): string {
+  if (rows.length === 0) return "暂无表关联关系。";
+
+  const lines = [
+    `═══ 表关联关系 — ${rows.length} 条 ═══`,
+    "",
+  ];
+
+  for (const r of rows) {
+    const src = `${r.schema}.${r.table_name}.${r.column_name}`;
+    const ref = `${r.ref_schema}.${r.ref_table}.${r.ref_column}`;
+    const cond = r.condition ? ` [${r.condition}]` : "";
+    lines.push(`  #${String(r.id).padStart(3)} ${src} → ${ref} (${r.relation_type})${cond}`);
+  }
+
+  return lines.join("\n");
+}
+
+async function handleRelations(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
+  rest: string[],
+): Promise<void> {
+  const sub = rest[0];
+
+  switch (sub) {
+    case "add":
+      return await handleRelationsAdd(ctx, ws, pi);
+    case "remove":
+      return await handleRelationsRemove(ctx, ws, pi);
+    case "discover":
+      return await handleRelationsDiscover(ctx, ws, pi);
+    case "er-diagram":
+      return await handleRelationsERDiagram(ctx, ws, rest[1]);
+    default:
+      return await handleRelationsList(ctx, ws, pi);
+  }
+}
+
+async function handleRelationsList(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
+): Promise<void> {
+  const rows = ws.getRelations();
+
+  if (rows.length === 0) {
+    ctx.ui.notify(
+      formatRelationsList([]),
+      "info",
+    );
+    return;
+  }
+
+  // Build labels for selection
+  const labels = rows.map((r) => {
+    const src = `${r.table_name}.${r.column_name}`;
+    const ref = `${r.ref_table}.${r.ref_column}`;
+    const cond = r.condition ? ` [${r.condition}]` : "";
+    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relation_type})${cond}`;
+  });
+
+  const choice = await ctx.ui.select("选择一个关系", labels);
+  if (!choice) return;
+
+  const idx = labels.indexOf(choice);
+  const entry = rows[idx];
+
+  const action = await ctx.ui.select(
+    `#${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+    ["🗑 删除", "取消"],
+  );
+
+  if (action === "🗑 删除") {
+    const confirm = await ctx.ui.select(
+      `确认删除这个关系？`,
+      ["取消", "确认删除"],
+    );
+    if (confirm === "确认删除") {
+      ws.relationGraph.removeById(entry.id);
+      ctx.ui.notify(
+        `已删除关系 #${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+        "info",
+      );
+    }
+  }
+}
+
+async function handleRelationsAdd(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
+): Promise<void> {
+  if (!ws.isReady()) {
+    ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
+    return;
+  }
+
+  const schema = ws.current!.database;
+
+  // Step 1: pick source table
+  const srcTable = await pickTable(ctx, ws, "选择源表");
+  if (!srcTable) return;
+
+  // Step 2: pick source column (from schema cache)
+  let srcColumns: string[] = [];
+  try {
+    const schemaInfo = await ws.getTableSchema(srcTable);
+    srcColumns = schemaInfo.columns.map((c: Record<string, any>) => c.COLUMN_NAME as string);
+  } catch {
+    ctx.ui.notify(`无法获取 ${srcTable} 的列信息`, "error");
+    return;
+  }
+
+  const srcCol = await ctx.ui.select("选择源表列", srcColumns);
+  if (!srcCol) return;
+
+  // Step 3: pick target table
+  const refTable = await pickTable(ctx, ws, "选择关联表");
+  if (!refTable) return;
+
+  // Step 4: pick target column
+  let refColumns: string[] = [];
+  try {
+    const schemaInfo = await ws.getTableSchema(refTable);
+    refColumns = schemaInfo.columns.map((c: Record<string, any>) => c.COLUMN_NAME as string);
+  } catch {
+    ctx.ui.notify(`无法获取 ${refTable} 的列信息`, "error");
+    return;
+  }
+
+  const refCol = await ctx.ui.select("选择关联表列", refColumns);
+  if (!refCol) return;
+
+  // Step 5: optional condition
+  const condition = await ctx.ui.input("关联条件（可选，如 type=1，回车跳过）", "");
+  if (condition === undefined) return;
+
+  // Step 6: relation type
+  const relationType = await ctx.ui.select(
+    "关系类型",
+    ["MANY_TO_ONE", "ONE_TO_MANY", "ONE_TO_ONE", "MANY_TO_MANY"],
+  );
+  if (!relationType) return;
+
+  const row = ws.relationGraph.register(
+    { schema, table: srcTable, column: srcCol, condition: condition.trim() || undefined },
+    { schema, table: refTable, column: refCol },
+    relationType,
+  );
+
+  ctx.ui.notify(
+    `已添加关系 #${row.id}: ${srcTable}.${srcCol} → ${refTable}.${refCol} (${relationType})`,
+    "info",
+  );
+}
+
+async function handleRelationsRemove(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
+): Promise<void> {
+  const rows = ws.getRelations();
+  if (rows.length === 0) {
+    ctx.ui.notify("暂无表关联关系", "info");
+    return;
+  }
+
+  const labels = rows.map((r) => {
+    const src = `${r.table_name}.${r.column_name}`;
+    const ref = `${r.ref_table}.${r.ref_column}`;
+    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relation_type})`;
+  });
+
+  const choice = await ctx.ui.select("选择要删除的关系", labels);
+  if (!choice) return;
+
+  const idx = labels.indexOf(choice);
+  const entry = rows[idx];
+
+  const confirm = await ctx.ui.select(
+    `确认删除 "${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}"？`,
+    ["取消", "确认删除"],
+  );
+
+  if (confirm === "确认删除") {
+    ws.relationGraph.removeById(entry.id);
+    ctx.ui.notify(
+      `已删除关系 #${entry.id}`,
+      "info",
+    );
+  }
+}
+
+async function handleRelationsDiscover(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
+): Promise<void> {
+  if (!ws.isReady()) {
+    ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
+    return;
+  }
+
+  const schema = ws.current!.database;
+  const connectionId = ws.current!.connectionId;
+
+  // Step 1: Sync foreign keys from information_schema
+  let fkCount = 0;
+  try {
+    const pool = ws.manager.getPool(connectionId);
+    const fkSql = `
+      SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME,
+        COLUMN_NAME,
+        REFERENCED_TABLE_SCHEMA,
+        REFERENCED_TABLE_NAME,
+        REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = ?
+        AND REFERENCED_COLUMN_NAME IS NOT NULL
+    `;
+    const [rows] = await pool.query(fkSql, [schema]) as [Record<string, any>[], any];
+
+    const fkRelations: import("../types").ColumnRelation[] = rows.map((row: Record<string, any>) => ({
+      schema: row.TABLE_SCHEMA as string,
+      table: row.TABLE_NAME as string,
+      column: row.COLUMN_NAME as string,
+      condition: "",
+      refSchema: (row.REFERENCED_TABLE_SCHEMA ?? schema) as string,
+      refTable: row.REFERENCED_TABLE_NAME as string,
+      refColumn: row.REFERENCED_COLUMN_NAME as string,
+      relationType: "MANY_TO_ONE",
+    }));
+
+    fkCount = ws.relationGraph.mergeForeignKeys(fkRelations);
+  } catch (err: any) {
+    ctx.ui.notify(`外键同步失败：${err.message}`, "warning");
+    // Continue to AI analysis even if FK sync fails
+  }
+
+  const parts: string[] = [];
+  if (fkCount > 0) parts.push(`发现 ${fkCount} 个外键关系，已自动保存`);
+  else parts.push("未发现外键关系");
+
+  // Step 2: AI analysis via pi model
+  const useAI = await ctx.ui.select(
+    "是否使用 AI 分析表关系？",
+    ["🤖 是，AI 分析", "⏭ 跳过"],
+  );
+
+  if (useAI?.startsWith("🤖")) {
+    // Build mermaid ER diagram
+    let tables: string[];
+    try { tables = await ws.getTables(); } catch { tables = []; }
+
+    if (tables.length > 0) {
+      // Generate simple ER diagram (tables with columns, no relation lines)
+      const erLines: string[] = ["erDiagram"];
+      const MAX_TABLES = 30;
+      const sampleTables = tables.slice(0, MAX_TABLES);
+
+      for (const t of sampleTables) {
+        try {
+          const info = await ws.getTableSchema(t);
+          erLines.push(`  "${t}" {`);
+          for (const col of info.columns) {
+            const colName = col.COLUMN_NAME as string;
+            const colType = col.COLUMN_TYPE as string;
+            const comment = col.COLUMN_COMMENT ? ` "${col.COLUMN_COMMENT}"` : "";
+            erLines.push(`    ${colType} ${colName}${comment}`);
+          }
+          erLines.push(`  }`);
+        } catch {
+          // skip tables we can't read
+        }
+      }
+
+      if (tables.length > MAX_TABLES) {
+        erLines.push(`  "…还有${tables.length - MAX_TABLES}张表" {}`);
+      }
+
+      const erDiagram = erLines.join("\n");
+
+      // Send to AI for analysis
+      ctx.ui.notify("正在通过 AI 分析表关系…", "info");
+
+      pi.sendMessage(
+        {
+          customType: "db-relation-discover",
+          content: [
+            `请分析以下数据库 ${schema} 的 mermaid ER 图，找出表之间可能的关联关系。`,
+            ``,
+            `规则：`,
+            `1. 根据列名匹配（如 users.id ↔ orders.user_id, dept_no ↔ dept_no）`,
+            `2. 根据列注释或列名语义推断`,
+            `3. 每对关系推断一个 relationType：MANY_TO_ONE / ONE_TO_MANY / ONE_TO_ONE / MANY_TO_MANY`,
+            `4. 如果有分类型关联条件（如 type=1），请标注 condition`,
+            ``,
+            `请以 JSON 数组格式输出，每个元素：`,
+            `{"table":"源表","column":"源列","refTable":"目标表","refColumn":"目标列","relationType":"MANY_TO_ONE","condition":""}`,
+            ``,
+            `ER 图：`,
+            "```mermaid",
+            erDiagram,
+            "```",
+          ].join("\n"),
+          display: true,
+        },
+        { deliverAs: "followUp", triggerTurn: true },
+      );
+    }
+  }
+
+  ctx.ui.notify(parts.join("\n"), "info");
+}
+
+async function handleRelationsERDiagram(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  table?: string,
+): Promise<void> {
+  if (!ws.isReady()) {
+    ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
+    return;
+  }
+
+  const schema = ws.current!.database;
+
+  // If no table specified, pick one
+  if (!table) {
+    const picked = await pickTable(ctx, ws, "选择表");
+    if (!picked) return;
+    table = picked;
+  }
+
+  // Get table schema info
+  let tableColumns: Record<string, any>[] = [];
+  try {
+    const info = await ws.getTableSchema(table);
+    tableColumns = info.columns;
+  } catch {
+    ctx.ui.notify(`无法获取 ${table} 的表结构`, "error");
+    return;
+  }
+
+  // Get relations
+  const relations = ws.getRelations(table);
+  const relatedTableNames = new Set<string>();
+  for (const r of relations) {
+    relatedTableNames.add(r.ref_table);
+    relatedTableNames.add(r.table_name);
+  }
+
+  // Fetch schemas for all related tables
+  const allColumns = new Map<string, Record<string, any>[]>();
+  allColumns.set(table, tableColumns);
+  for (const relatedTable of relatedTableNames) {
+    if (relatedTable === table) continue;
+    try {
+      const info = await ws.getTableSchema(relatedTable);
+      allColumns.set(relatedTable, info.columns);
+    } catch {
+      // skip
+    }
+  }
+
+  // Build mermaid ER diagram
+  const lines: string[] = ["erDiagram"];
+
+  // Relations
+  for (const r of relations) {
+    const label = r.condition
+      ? `${r.column_name} → ${r.ref_column} [${r.condition}]`
+      : `${r.column_name} → ${r.ref_column}`;
+    lines.push(`  "${r.table_name}" ||--o{ "${r.ref_table}" : "${label}"`);
+  }
+
+  // Table definitions
+  const drawn = new Set<string>();
+  for (const [tbl, cols] of allColumns) {
+    if (drawn.has(tbl)) continue;
+    drawn.add(tbl);
+    lines.push(`  "${tbl}" {`);
+    for (const col of cols) {
+      const colName = col.COLUMN_NAME as string;
+      const colType = col.COLUMN_TYPE as string;
+      const comment = col.COLUMN_COMMENT ? ` "${col.COLUMN_COMMENT}"` : "";
+      lines.push(`    ${colType} ${colName}${comment}`);
+    }
+    lines.push(`  }`);
+  }
+
+  const erDiagram = lines.join("\n");
+
+  ctx.ui.notify(
+    `═══ ER 图 — ${table} ═══\n\n${erDiagram}`,
+    "info",
+  );
 }
 
 // ====== Status bar helpers ======

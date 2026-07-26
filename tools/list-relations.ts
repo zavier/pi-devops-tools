@@ -32,7 +32,7 @@ export function createListRelationsTool(graph: RelationGraph) {
         }
 
         const lines = relations.map((r, i) =>
-          `${i + 1}. ${r.schema}.${r.table}.${r.column} -> ${r.refSchema}.${r.refTable}.${r.refColumn} (${r.relationType})${r.condition ? ` [${r.condition}]` : ""}`
+          `${i + 1}. ${r.schema}.${r.table_name}.${r.column_name} -> ${r.ref_schema}.${r.ref_table}.${r.ref_column} (${r.relation_type})${r.condition ? ` [${r.condition}]` : ""}`
         );
 
         return {

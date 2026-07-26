@@ -1,14 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { Database } from "better-sqlite3";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { ColumnRef, ColumnRelation, RelatedResult } from "./types";
+import { RelationStore, type RelationRow } from "./relation/store";
 
 function key(c: ColumnRef): string {
   return `${c.schema}.${c.table}.${c.column}${c.condition ? ":" + c.condition : ""}`;
-}
-
-function relationKey(r: ColumnRelation): string {
-  return `${r.schema}.${r.table}.${r.column}@${r.condition || ""}->${r.refSchema}.${r.refTable}.${r.refColumn}`;
 }
 
 interface ForwardEntry {
@@ -17,31 +15,58 @@ interface ForwardEntry {
 }
 
 export class RelationGraph {
-  // string key -> { source, targets[] } — stores original source ref for Map-key identity
+  private store: RelationStore;
+  // In-memory forward graph for BFS traversal, rebuilt on each mutation
   private forward = new Map<string, ForwardEntry>();
-  // all relations for list/serialize
-  private relations: ColumnRelation[] = [];
 
-  register(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): void {
+  constructor(db: Database) {
+    this.store = new RelationStore(db);
+    this.rebuildForward();
+  }
+
+  /** Rebuild the in-memory forward graph from the store. */
+  private rebuildForward(): void {
+    this.forward.clear();
+    const all = this.store.list();
+    for (const row of all) {
+      const source: ColumnRef = {
+        schema: row.schema,
+        table: row.table_name,
+        column: row.column_name,
+        condition: row.condition || undefined,
+      };
+      const target: ColumnRef = {
+        schema: row.ref_schema,
+        table: row.ref_table,
+        column: row.ref_column,
+      };
+      this.addToForward(source, target, row.relation_type);
+    }
+  }
+
+  private addToForward(source: ColumnRef, target: ColumnRef, relationType: string): void {
     const sk = key(source);
     const tk = key(target);
 
-    // Forward: source -> target
+    // Forward
     const fwdEntry = this.forward.get(sk) ?? { source, targets: [] };
     if (!fwdEntry.targets.some(e => key(e.target) === tk)) {
       fwdEntry.targets.push({ target, relationType });
       this.forward.set(sk, fwdEntry);
     }
 
-    // Reverse: target -> source (bidirectional)
+    // Reverse (bidirectional)
     const revEntry = this.forward.get(tk) ?? { source: target, targets: [] };
     if (!revEntry.targets.some(e => key(e.target) === sk)) {
       revEntry.targets.push({ target: source, relationType });
       this.forward.set(tk, revEntry);
     }
+  }
 
-    // Track in relations list
-    const rel: ColumnRelation = {
+  // ── CRUD (through store) ──────────────────────────────────────
+
+  register(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): RelationRow {
+    const rel: Omit<ColumnRelation, "id"> = {
       schema: source.schema,
       table: source.table,
       column: source.column,
@@ -51,40 +76,52 @@ export class RelationGraph {
       refColumn: target.column,
       relationType,
     };
-    if (!this.relations.some(r => relationKey(r) === relationKey(rel))) {
-      this.relations.push(rel);
-    }
+
+    const row = this.store.insert(rel);
+    this.addToForward(source, target, relationType);
+    return row;
   }
 
   remove(source: ColumnRef, target: ColumnRef): boolean {
-    const sk = key(source);
-    const tk = key(target);
+    const all = this.store.list({
+      schema: source.schema,
+      table: source.table,
+    });
 
-    // Remove forward
-    const fwdEntry = this.forward.get(sk);
-    if (fwdEntry) {
-      const idx = fwdEntry.targets.findIndex(e => key(e.target) === tk);
-      if (idx >= 0) fwdEntry.targets.splice(idx, 1);
-    }
-
-    // Remove reverse
-    const revEntry = this.forward.get(tk);
-    if (revEntry) {
-      const idx = revEntry.targets.findIndex(e => key(e.target) === sk);
-      if (idx >= 0) revEntry.targets.splice(idx, 1);
-    }
-
-    // Remove from relations list
-    const before = this.relations.length;
-    this.relations = this.relations.filter(r =>
-      !(r.schema === source.schema && r.table === source.table &&
-        r.column === source.column && r.condition === (source.condition ?? "") &&
-        r.refSchema === target.schema && r.refTable === target.table &&
-        r.refColumn === target.column)
+    const match = all.find(r =>
+      r.column_name === source.column &&
+      r.condition === (source.condition ?? "") &&
+      r.ref_schema === target.schema &&
+      r.ref_table === target.table &&
+      r.ref_column === target.column
     );
 
-    return before !== this.relations.length;
+    if (!match) return false;
+
+    this.store.delete(match.id);
+    this.rebuildForward();
+    return true;
   }
+
+  removeById(id: number): boolean {
+    const deleted = this.store.delete(id);
+    if (deleted) this.rebuildForward();
+    return deleted;
+  }
+
+  getById(id: number): RelationRow | undefined {
+    return this.store.getById(id);
+  }
+
+  list(schema?: string, table?: string): RelationRow[] {
+    return this.store.list({ schema, table });
+  }
+
+  listAll(): RelationRow[] {
+    return this.store.list();
+  }
+
+  // ── BFS traversal ─────────────────────────────────────────────
 
   getDirectRelations(schema: string, table: string): Map<ColumnRef, ColumnRef[]> {
     const result = new Map<ColumnRef, ColumnRef[]>();
@@ -94,14 +131,6 @@ export class RelationGraph {
       result.set(entry.source, entry.targets.map(t => t.target));
     }
     return result;
-  }
-
-  list(schema?: string, table?: string): ColumnRelation[] {
-    return this.relations.filter(r => {
-      if (schema && r.schema !== schema) return false;
-      if (table && r.table !== table) return false;
-      return true;
-    });
   }
 
   async bfsQuery(
@@ -185,47 +214,64 @@ export class RelationGraph {
     return results;
   }
 
-  loadFromFile(cwd?: string): void {
+  // ── JSON import / export ──────────────────────────────────────
+
+  exportToJson(cwd?: string): string {
+    const baseDir = cwd ?? process.cwd();
+    const filePath = path.join(baseDir, ".pi", "table-relations.json");
+    const data = this.store.exportAll();
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+    return filePath;
+  }
+
+  importFromJson(cwd?: string): number {
     const baseDir = cwd ?? process.cwd();
     const filePath = path.join(baseDir, ".pi", "table-relations.json");
 
-    if (!fs.existsSync(filePath)) return;
+    if (!fs.existsSync(filePath)) return 0;
 
     const raw = fs.readFileSync(filePath, "utf-8");
     const data: ColumnRelation[] = JSON.parse(raw);
 
-    for (const r of data) {
-      this.register(
-        { schema: r.schema, table: r.table, column: r.column, condition: r.condition || undefined },
-        { schema: r.refSchema, table: r.refTable, column: r.refColumn },
-        r.relationType
-      );
-    }
+    const added = this.store.importAll(data);
+    if (added > 0) this.rebuildForward();
+    return added;
   }
 
-  saveToFile(cwd?: string): void {
-    const baseDir = cwd ?? process.cwd();
-    const filePath = path.join(baseDir, ".pi", "table-relations.json");
-    fs.writeFileSync(filePath, JSON.stringify(this.relations, null, 2), "utf-8");
-  }
+  // ── Foreign key sync ──────────────────────────────────────────
 
   mergeForeignKeys(newRelations: ColumnRelation[]): number {
     let added = 0;
+    const allExisting = this.store.list();
+
     for (const r of newRelations) {
-      const exists = this.relations.some(existing =>
-        existing.schema === r.schema && existing.table === r.table &&
-        existing.column === r.column && existing.refSchema === r.refSchema &&
-        existing.refTable === r.refTable && existing.refColumn === r.refColumn
+      const exists = allExisting.some(ex =>
+        ex.schema === r.schema && ex.table_name === r.table &&
+        ex.column_name === r.column && ex.condition === (r.condition ?? "") &&
+        ex.ref_schema === r.refSchema && ex.ref_table === r.refTable &&
+        ex.ref_column === r.refColumn
       );
       if (!exists) {
-        this.register(
-          { schema: r.schema, table: r.table, column: r.column, condition: r.condition || undefined },
-          { schema: r.refSchema, table: r.refTable, column: r.refColumn },
-          r.relationType
-        );
+        this.store.insert({
+          schema: r.schema,
+          table: r.table,
+          column: r.column,
+          condition: r.condition ?? "",
+          refSchema: r.refSchema,
+          refTable: r.refTable,
+          refColumn: r.refColumn,
+          relationType: r.relationType ?? "MANY_TO_ONE",
+        });
         added++;
       }
     }
+
+    if (added > 0) this.rebuildForward();
     return added;
+  }
+
+  /** Get the underlying store for direct DB access if needed. */
+  getStore(): RelationStore {
+    return this.store;
   }
 }

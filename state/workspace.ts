@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { loadConnectionsConfig, getConnectionsConfigPath, type ResolvedConnectionConfig } from "../connection/db-config";
 import { DatabaseConnectionManager } from "../connection/db-manager";
 import { QueryHistoryStore, type HistoryEntry, FavoriteStore, type FavoriteEntry } from "../history/store";
+import { RelationGraph } from "../relation-graph";
+import type { RelationRow } from "../relation/store";
+import type { RelatedResult } from "../types";
 import {
   loadSchemaCache,
   refreshSchemaCache,
@@ -63,6 +66,7 @@ export class DatabaseWorkspaceService {
   readonly manager: DatabaseConnectionManager;
   readonly history: QueryHistoryStore;
   readonly favorites: FavoriteStore;
+  readonly relationGraph: RelationGraph;
   current: WorkspaceState | null;
   lastSql: string | null; // most recently executed SQL, for /db favorite add
 
@@ -71,6 +75,7 @@ export class DatabaseWorkspaceService {
     this.manager = new DatabaseConnectionManager(this.connections);
     this.history = new QueryHistoryStore();
     this.favorites = new FavoriteStore(this.history.getDb());
+    this.relationGraph = new RelationGraph(this.history.getDb());
     this.current = loadWorkspace();
     this.lastSql = null;
   }
@@ -228,6 +233,47 @@ export class DatabaseWorkspaceService {
       database: this.current?.database,
       keyword,
     });
+  }
+
+  /** Execute a query and optionally follow relations via BFS. */
+  async executeQueryWithRelations(
+    sql: string,
+    table: string,
+    autoJoin: boolean,
+    maxDepth = 2,
+    limit = 100,
+    relatedLimit = 10,
+  ): Promise<{
+    columns: string[];
+    rows: Record<string, any>[];
+    elapsed: string;
+    related: RelatedResult[];
+  }> {
+    if (!this.current) throw new Error("No database selected");
+
+    const { columns, rows, elapsed } = await this.executeQuery(sql);
+
+    let related: RelatedResult[] = [];
+
+    if (autoJoin && rows.length > 0) {
+      const pool = this.manager.getPool(this.current.connectionId);
+      try {
+        related = await this.relationGraph.bfsQuery(
+          pool, this.current.database, table, rows, maxDepth, relatedLimit
+        );
+      } catch (err) {
+        // Non-fatal: if relation query fails, still return primary results
+        // Don't throw — the user still sees the main table data
+      }
+    }
+
+    return { columns, rows, elapsed, related };
+  }
+
+  /** Get relations for the current database. */
+  getRelations(table?: string): RelationRow[] {
+    if (!this.current) return this.relationGraph.listAll();
+    return this.relationGraph.list(this.current.database, table);
   }
 
   /** Release all resources. */

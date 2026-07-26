@@ -61,7 +61,7 @@ export function createSyncForeignKeysTool(
         const skipped = fkRelations.length - added;
 
         if (added > 0) {
-          graph.saveToFile();
+          graph.exportToJson();
         }
 
         return {
