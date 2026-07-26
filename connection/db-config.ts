@@ -1,0 +1,130 @@
+/**
+ * Database connection configuration types and YAML loader.
+ *
+ * Reads ~/.pi/database/connections.yaml — a global, user-scoped config
+ * separate from the project's .pi/config.json. Supports ${ENV_VAR} placeholders.
+ */
+
+import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { load as parseYaml } from "js-yaml";
+
+// ====== Config file types ======
+
+export interface ConnectionConfig {
+  environment: string;
+  type: "mysql" | "postgres";
+  host: string;
+  port: number;
+  username: string;
+  password: string; // raw, may contain ${ENV_VAR}
+  defaultDatabase?: string;
+}
+
+export interface ConnectionsFile {
+  connections: Record<string, ConnectionConfig>;
+}
+
+// ====== Resolved types (after env-var substitution) ======
+
+export interface ResolvedConnectionConfig {
+  id: string;
+  environment: string;
+  type: "mysql" | "postgres";
+  host: string;
+  port: number;
+  username: string;
+  password: string; // resolved plaintext
+  defaultDatabase?: string;
+}
+
+// ====== Paths ======
+
+const CONFIG_DIR = join(homedir(), ".pi", "database");
+const CONFIG_FILE = join(CONFIG_DIR, "connections.yaml");
+
+function resolveEnvVars(value: string): string {
+  return value.replace(/\$\{(\w+)\}/g, (_, name: string) => {
+    const envVal = process.env[name];
+    if (envVal === undefined) {
+      throw new Error(
+        `Environment variable '${name}' referenced in connections.yaml but not set`
+      );
+    }
+    return envVal;
+  });
+}
+
+/**
+ * Load and resolve the connections configuration.
+ * Returns empty array if the file doesn't exist (first-time setup).
+ * Throws only if the file exists but is malformed.
+ */
+export function loadConnectionsConfig(): ResolvedConnectionConfig[] {
+  if (!existsSync(CONFIG_FILE)) {
+    return [];
+  }
+
+  const raw = readFileSync(CONFIG_FILE, "utf-8");
+  if (raw.trim() === "") {
+    return [];
+  }
+
+  const parsed = parseYaml(raw) as ConnectionsFile;
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(`connections.yaml is malformed`);
+  }
+
+  if (!parsed.connections || typeof parsed.connections !== "object") {
+    throw new Error(`connections.yaml must have a top-level 'connections' map`);
+  }
+
+  const resolved: ResolvedConnectionConfig[] = [];
+
+  for (const [id, cfg] of Object.entries(parsed.connections)) {
+    const c = cfg as ConnectionConfig;
+
+    if (!c.environment || !c.type || !c.host) {
+      throw new Error(
+        `Connection '${id}' missing required fields (environment, type, host)`
+      );
+    }
+
+    resolved.push({
+      id,
+      environment: c.environment,
+      type: c.type,
+      host: c.host,
+      port: c.port ?? 3306,
+      username: c.username ?? "root",
+      password: c.password ? resolveEnvVars(c.password) : "",
+      defaultDatabase: c.defaultDatabase,
+    });
+  }
+
+  return resolved;
+}
+
+/** Path to the connections config file, for use in help messages. */
+export function getConnectionsConfigPath(): string {
+  return CONFIG_FILE;
+}
+
+/**
+ * Get distinct environments from the resolved config list.
+ */
+export function getEnvironments(connections: ResolvedConnectionConfig[]): string[] {
+  return [...new Set(connections.map(c => c.environment))].sort();
+}
+
+/**
+ * Filter connections by environment.
+ */
+export function getConnectionsByEnv(
+  connections: ResolvedConnectionConfig[],
+  env: string
+): ResolvedConnectionConfig[] {
+  return connections.filter(c => c.environment === env);
+}

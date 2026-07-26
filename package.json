@@ -1,0 +1,50 @@
+{
+  "name": "pi-devops-tools",
+  "version": "0.1.0",
+  "description": "Database workspace extension for pi — query MySQL/PostgreSQL with SSH tunnel support, schema caching, and query history",
+  "keywords": ["pi-package", "pi-extension", "database", "mysql", "devops"],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/你的用户名/pi-devops-tools.git"
+  },
+  "files": [
+    "index.ts",
+    "commands/",
+    "state/",
+    "schema/",
+    "history/",
+    "tools/",
+    "connections/"
+  ],
+  "dependencies": {
+    "better-sqlite3": "^13.0.1",
+    "js-yaml": "^4.1.0",
+    "mysql2": "^3.12.0",
+    "ssh2": "^1.16.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@sinclair/typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.80.6",
+    "@earendil-works/pi-coding-agent": "^0.80.6",
+    "@sinclair/typebox": "^0.34.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
+    "@types/ssh2": "^1.15.5",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}
