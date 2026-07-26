@@ -28,7 +28,7 @@ export class QueryRunner {
     connectionId: string,
     database: string,
     sql: string,
-  ): Promise<{ columns: string[]; rows: Record<string, any>[]; elapsed: string }> {
+  ): Promise<{ columns: string[]; rows: Record<string, any>[]; elapsed: string; sql: string }> {
     return this.manager.executeQuery(connectionId, database, sql);
   }
 
@@ -42,28 +42,34 @@ export class QueryRunner {
     table: string,
     autoJoin: boolean,
     maxDepth = 2,
-    limit = 100,
     relatedLimit = 10,
   ): Promise<{
     columns: string[];
     rows: Record<string, any>[];
     elapsed: string;
+    sql: string;
     related: RelatedResult[];
   }> {
-    const { columns, rows, elapsed } = await this.manager.executeQuery(connectionId, database, sql);
+    const result = await this.manager.executeQuery(connectionId, database, sql);
 
     let related: RelatedResult[] = [];
 
-    if (autoJoin && rows.length > 0) {
-      const pool = this.manager.getPool(connectionId);
+    if (autoJoin && result.rows.length > 0) {
       try {
-        related = await this.relationGraph.bfsQuery(pool, database, table, rows, maxDepth, relatedLimit);
+        related = await this.relationGraph.bfsQuery(
+          (s, params) => this.manager.executeQuery(connectionId, database, s, { params }),
+          database,
+          table,
+          result.rows,
+          maxDepth,
+          relatedLimit,
+        );
       } catch {
         // Non-fatal: if relation query fails, still return primary results
       }
     }
 
-    return { columns, rows, elapsed, related };
+    return { ...result, related };
   }
 
   /**

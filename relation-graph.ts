@@ -1,9 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Database } from "better-sqlite3";
-import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { ColumnRef, ColumnRelation, RelatedResult } from "./types";
 import { RelationStore, type RelationRow } from "./relation/store";
+
+/**
+ * The seam through which BFS executes queries. Supplied by the caller
+ * (QueryRunner wires it to the connection manager) — keeps RelationGraph
+ * DB-agnostic and testable with a stub.
+ */
+export type QueryFn = (
+  sql: string,
+  params?: unknown[],
+) => Promise<{ columns: string[]; rows: Record<string, any>[]; elapsed: string }>;
 
 function key(c: ColumnRef): string {
   return `${c.schema}.${c.table}.${c.column}${c.condition ? ":" + c.condition : ""}`;
@@ -134,7 +143,7 @@ export class RelationGraph {
   }
 
   async bfsQuery(
-    pool: Pool,
+    query: QueryFn,
     schema: string,
     table: string,
     rows: Record<string, any>[],
@@ -169,20 +178,16 @@ export class RelationGraph {
           if (visited.has(tk)) continue;
           visited.add(tk);
 
-          const start = Date.now();
-          const valueList = values.map(v =>
-            typeof v === "string" ? `'${v.replace(/'/g, "''")}'` : String(v)
-          ).join(", ");
-
-          let whereClause = `${targetCol.column} IN (${valueList})`;
+          // Parameterized IN (?) — mysql2 expands the array. No string
+          // interpolation of values. Table names are schema-qualified so
+          // cross-schema relations work and no USE state is required.
+          let whereClause = `\`${targetCol.column}\` IN (?)`;
           if (targetCol.condition) {
             whereClause = `(${whereClause}) AND (${targetCol.condition})`;
           }
 
-          const query = `SELECT * FROM ${targetCol.table} WHERE ${whereClause} LIMIT ${limit}`;
-          const [resultRows] = await pool.query<RowDataPacket[]>(query);
-
-          const elapsed = `${((Date.now() - start) / 1000).toFixed(3)}s`;
+          const sql = `SELECT * FROM \`${targetCol.schema}\`.\`${targetCol.table}\` WHERE ${whereClause} LIMIT ${limit}`;
+          const { rows: resultRows, elapsed } = await query(sql, [values]);
 
           const joinPath = item.joinPath
             ? `${item.joinPath} -> ${sourceCol.table}.${sourceCol.column} -> ${targetCol.table}.${targetCol.column}`

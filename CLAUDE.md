@@ -54,9 +54,9 @@ formatting/        ← formatTableResult — auto layout: horizontal (≤8 cols)
 
 ### Key design patterns
 
+- **Single execution point**: all queries go through `DatabaseConnectionManager.executeQuery`, which applies the read-only guard and LIMIT policy (`connection/sql-policy.ts` — pure functions, single home of `READONLY_SQL_RE`), then runs on a dedicated checked-out connection (`getConnection → USE → query → release`) so USE and the query can't be split across pool connections. Unbounded SELECTs get `LIMIT n` appended (default 100, per-connection `queryLimit` in connections.yaml); the final SQL is returned as `result.sql` so auto-appended limits are visible to the user. Command handlers import `READONLY_SQL_RE` only for dispatch (table-name vs SQL), never for enforcement.
 - **Cache-first schema**: `getTables()` and `getTableSchema()` check local JSON cache first, fall back to live DB query. Refresh via `/db refresh-schema`.
-- **BFS auto-join**: `RelationGraph.bfsQuery()` traverses the in-memory forward graph to follow registered table relations, building `SELECT * FROM related_table WHERE col IN (...)` queries at each hop. Depth-limited (default 2, max 5).
-- **Read-only enforcement**: SQL is validated against `/^(SELECT|SHOW|DESCRIBE|EXPLAIN)\b/i` (`READONLY_SQL_RE` in `commands/query.ts`) before execution.
+- **BFS auto-join**: `RelationGraph.bfsQuery()` traverses the in-memory forward graph, issuing parameterized (`IN (?)`), schema-qualified queries at each hop. Depth-limited (default 2, max 5). It receives a `QueryFn` from its caller rather than a mysql2 pool — the graph stays DB-agnostic and is tested with a stub.
 - **Lazy connections**: MySQL pools are created on first use and cached by connection ID. `destroy()` cleans up all pools.
 - **Facade bypass**: command handlers mix facade calls with direct access to `ws.relationGraph` / `ws.favorites` / `ws.manager` / `ws.history` — the facade is not a hard seam; follow existing usage when adding commands.
 

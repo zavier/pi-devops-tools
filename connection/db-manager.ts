@@ -1,12 +1,28 @@
 /**
  * Database Connection Manager for the /db workspace.
  *
- * Manages mysql2 connection pools keyed by connection ID.
- * Each pool is lazily created on first use.
+ * Manages mysql2 connection pools keyed by connection ID, and is the single
+ * query execution point: every query passes the read-only guard and LIMIT
+ * policy (see sql-policy.ts) and runs on a dedicated checked-out connection
+ * so USE and the query can't be split across pool connections.
  */
 
 import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
 import type { ResolvedConnectionConfig } from "./db-config";
+import { prepareReadOnlyQuery, DEFAULT_QUERY_LIMIT } from "./sql-policy";
+
+export interface QueryOptions {
+  limit?: number;     // row cap for SELECTs without trailing LIMIT (default: connection's queryLimit)
+  timeout?: number;   // per-query timeout in ms (default: 30000)
+  params?: unknown[]; // bound values for ? placeholders
+}
+
+export interface QueryOutput {
+  columns: string[];
+  rows: RowDataPacket[];
+  elapsed: string;
+  sql: string; // final SQL after policy (LIMIT may have been appended)
+}
 
 export class DatabaseConnectionManager {
   private pools = new Map<string, Pool>();
@@ -111,25 +127,38 @@ export class DatabaseConnectionManager {
 
   /**
    * Execute a read-only SQL query against a specific database.
+   *
+   * The SQL passes the read-only guard and gets a LIMIT appended if it's an
+   * unbounded SELECT. USE only affects the connection it runs on, so we check
+   * out a dedicated connection to keep the switch and the query together.
    */
   async executeQuery(
     connectionId: string,
     database: string,
     sql: string,
-    timeout = 30000
-  ): Promise<{ columns: string[]; rows: RowDataPacket[]; elapsed: string }> {
+    opts: QueryOptions = {},
+  ): Promise<QueryOutput> {
     const pool = this.getPool(connectionId);
+    const cfg = this.configMap.get(connectionId)!;
+    const finalSql = prepareReadOnlyQuery(sql, opts.limit ?? cfg.queryLimit ?? DEFAULT_QUERY_LIMIT);
 
-    // Switch to the target database
-    await pool.query(`USE \`${database}\``);
+    const conn = await pool.getConnection();
+    try {
+      await conn.query(`USE \`${database}\``);
 
-    const start = Date.now();
-    const [rows] = await pool.query<RowDataPacket[]>({ sql, timeout });
-    const elapsed = `${((Date.now() - start) / 1000).toFixed(3)}s`;
+      const start = Date.now();
+      const [rows] = await conn.query<RowDataPacket[]>(
+        { sql: finalSql, timeout: opts.timeout ?? 30000 },
+        opts.params,
+      );
+      const elapsed = `${((Date.now() - start) / 1000).toFixed(3)}s`;
 
-    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
-    return { columns, rows, elapsed };
+      return { columns, rows, elapsed, sql: finalSql };
+    } finally {
+      conn.release();
+    }
   }
 
   /** Close all pools. */

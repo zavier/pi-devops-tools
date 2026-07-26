@@ -78,7 +78,6 @@ export class DatabaseWorkspaceService {
     table: string,
     autoJoin: boolean,
     maxDepth = 2,
-    limit = 100,
     relatedLimit = 10,
   ) {
     if (!this.ctx.current) throw new Error("No database selected");
@@ -89,7 +88,6 @@ export class DatabaseWorkspaceService {
       table,
       autoJoin,
       maxDepth,
-      limit,
       relatedLimit,
     );
   }

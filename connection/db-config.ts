@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { load as parseYaml } from "js-yaml";
+import { DEFAULT_QUERY_LIMIT } from "./sql-policy";
 
 // ====== Config file types ======
 
@@ -20,6 +21,7 @@ export interface ConnectionConfig {
   username: string;
   password: string; // raw, may contain ${ENV_VAR}
   defaultDatabase?: string;
+  queryLimit?: number; // row cap for SELECTs without LIMIT (default: DEFAULT_QUERY_LIMIT)
 }
 
 export interface ConnectionsFile {
@@ -37,6 +39,7 @@ export interface ResolvedConnectionConfig {
   username: string;
   password: string; // resolved plaintext
   defaultDatabase?: string;
+  queryLimit: number; // resolved: config value or DEFAULT_QUERY_LIMIT
 }
 
 // ====== Paths ======
@@ -101,6 +104,7 @@ export function loadConnectionsConfig(): ResolvedConnectionConfig[] {
       username: c.username ?? "root",
       password: c.password ? resolveEnvVars(c.password) : "",
       defaultDatabase: c.defaultDatabase,
+      queryLimit: c.queryLimit ?? DEFAULT_QUERY_LIMIT,
     });
   }
 

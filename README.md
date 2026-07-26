@@ -5,7 +5,7 @@
 ## 功能
 
 - **`/db` 命令** — 交互式数据库工作区，支持多个子命令
-- **SQL 查询** — 只读查询（SELECT、SHOW、DESCRIBE、EXPLAIN），结果自动格式化
+- **SQL 查询** — 只读查询（SELECT、SHOW、DESCRIBE、EXPLAIN），结果自动格式化；无 LIMIT 的 SELECT 自动封顶（默认 100，可按连接配置）
 - **表结构缓存** — 本地缓存表结构，秒出结果
 - **查询历史** — 所有查询本地记录，支持关键词搜索
 - **收藏查询** — 保存常用 SQL 模板，一键执行
@@ -48,6 +48,7 @@ connections:
     username: readonly
     password: ${DB_PASSWORD}
     defaultDatabase: app_db
+    queryLimit: 50
   staging:
     environment: staging
     type: mysql
@@ -61,6 +62,7 @@ connections:
 - `port` 默认 `3306`，`username` 默认 `root`
 - `password` 支持 `${环境变量}` 替换
 - `defaultDatabase` 可选 — 首次 `/db switch` 到该连接时自动选用
+- `queryLimit` 可选 — 无 LIMIT 的 SELECT 自动追加的行数上限（默认 `100`）
 - `/db switch` 按 `environment` 分组展示连接
 
 ## 命令

@@ -5,7 +5,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { FavoriteEntry } from "../history/store";
-import { executeAndDisplay, READONLY_SQL_RE } from "./query";
+import { READONLY_SQL_RE } from "../connection/sql-policy";
+import { executeAndDisplay } from "./query";
 
 // ── List formatting ─────────────────────────────────────────────
 
@@ -69,7 +70,7 @@ async function handleFavoriteAdd(
     sql = args.slice(1).join(" ");
   } else if (args.length === 1) {
     const nameOrSql = args[0];
-    if (/^(SELECT|SHOW|DESCRIBE|EXPLAIN)/i.test(nameOrSql)) {
+    if (READONLY_SQL_RE.test(nameOrSql)) {
       sql = nameOrSql;
     } else {
       name = nameOrSql;
@@ -141,13 +142,7 @@ async function handleFavoriteList(
     ctx.ui.notify(`原始 SQL：\n${entry.sql}`, "info");
     const editedSql = await ctx.ui.input("编辑 SQL（对照上方原文修改）");
     if (!editedSql || !editedSql.trim()) return;
-    if (!READONLY_SQL_RE.test(editedSql.trim())) {
-      ctx.ui.notify(
-        `仅允许只读 SQL（SELECT、SHOW、DESCRIBE、EXPLAIN）`,
-        "error",
-      );
-      return;
-    }
+    // No pre-validation — the executor enforces the read-only guard.
     await executeAndDisplay(ctx, ws, pi, editedSql.trim());
   } else if (action === "🗑 删除") {
     const confirm = await ctx.ui.select(
