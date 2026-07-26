@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { Database } from "better-sqlite3";
 import type { ColumnRef, ColumnRelation, RelatedResult } from "./types";
 import { RelationStore, type RelationRow } from "./relation/store";
@@ -118,10 +116,6 @@ export class RelationGraph {
     return deleted;
   }
 
-  getById(id: number): RelationRow | undefined {
-    return this.store.getById(id);
-  }
-
   list(schema?: string, table?: string): RelationRow[] {
     return this.store.list({ schema, table });
   }
@@ -219,30 +213,6 @@ export class RelationGraph {
     return results;
   }
 
-  // ── JSON import / export ──────────────────────────────────────
-
-  exportToJson(cwd?: string): string {
-    const baseDir = cwd ?? process.cwd();
-    const filePath = path.join(baseDir, ".pi", "table-relations.json");
-    const data = this.store.exportAll();
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-    return filePath;
-  }
-
-  importFromJson(cwd?: string): number {
-    const baseDir = cwd ?? process.cwd();
-    const filePath = path.join(baseDir, ".pi", "table-relations.json");
-
-    if (!fs.existsSync(filePath)) return 0;
-
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const data: ColumnRelation[] = JSON.parse(raw);
-
-    const added = this.store.importAll(data);
-    if (added > 0) this.rebuildForward();
-    return added;
-  }
-
   // ── Foreign key sync ──────────────────────────────────────────
 
   mergeForeignKeys(newRelations: ColumnRelation[]): number {
@@ -275,8 +245,4 @@ export class RelationGraph {
     return added;
   }
 
-  /** Get the underlying store for direct DB access if needed. */
-  getStore(): RelationStore {
-    return this.store;
-  }
 }

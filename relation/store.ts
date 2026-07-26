@@ -119,26 +119,6 @@ export class RelationStore {
     return result.changes > 0;
   }
 
-  /** Delete all relations for a given schema. */
-  deleteBySchema(schema: string): number {
-    const result = this.db
-      .prepare("DELETE FROM table_relations WHERE schema = ?")
-      .run(schema);
-    return result.changes;
-  }
-
-  /** Check if a relation already exists. */
-  exists(rel: Omit<ColumnRelation, "id" | "relationType">): boolean {
-    const row = this.db
-      .prepare(`
-        SELECT 1 FROM table_relations
-        WHERE schema = ? AND table_name = ? AND column_name = ?
-          AND condition = ? AND ref_schema = ? AND ref_table = ? AND ref_column = ?
-      `)
-      .get(rel.schema, rel.table, rel.column, rel.condition, rel.refSchema, rel.refTable, rel.refColumn);
-    return row !== undefined;
-  }
-
   /** Count relations, optionally filtered. */
   count(filter?: { schema?: string }): number {
     const params: any[] = [];
@@ -148,45 +128,6 @@ export class RelationStore {
       .prepare(`SELECT COUNT(*) as cnt FROM table_relations ${where}`)
       .get(...params) as { cnt: number };
     return row.cnt;
-  }
-
-  // ── JSON import / export ──────────────────────────────────────
-
-  /** Export all relations to ColumnRelation array (for JSON file). */
-  exportAll(): ColumnRelation[] {
-    return this.list().map(r => ({
-      schema: r.schema,
-      table: r.table_name,
-      column: r.column_name,
-      condition: r.condition,
-      refSchema: r.ref_schema,
-      refTable: r.ref_table,
-      refColumn: r.ref_column,
-      relationType: r.relation_type,
-    }));
-  }
-
-  /** Import relations from a ColumnRelation array. Returns number added. */
-  importAll(relations: ColumnRelation[]): number {
-    let added = 0;
-    const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO table_relations (schema, table_name, column_name, condition, ref_schema, ref_table, ref_column, relation_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const tx = this.db.transaction(() => {
-      for (const rel of relations) {
-        const result = stmt.run(
-          rel.schema, rel.table, rel.column, rel.condition,
-          rel.refSchema, rel.refTable, rel.refColumn, rel.relationType,
-        );
-        if (result.changes > 0) added++;
-      }
-    });
-    tx();
-
-    // Rebuild the in-memory graph will be handled by RelationGraph
-    return added;
   }
 
   // ── Helpers ───────────────────────────────────────────────────

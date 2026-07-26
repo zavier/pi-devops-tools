@@ -65,7 +65,6 @@ formatting/        ← formatTableResult — auto layout: horizontal / transpose
 2. `RelationStore` persists to SQLite `table_relations` table
 3. `RelationGraph` rebuilds its in-memory bidirectional `forward` Map
 4. On query with auto-join, `bfsQuery()` starts from the queried table, follows registered edges, and returns related rows as separate `RelatedResult` objects
-5. Relations export/import via `.pi/table-relations.json` in the project root
 
 ### Type system
 
