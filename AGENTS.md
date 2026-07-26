@@ -5,16 +5,25 @@ Working conventions for this repo. The architecture is documented in
 
 ## Verify before pushing
 
-`npm run check` (typecheck) and `npm test` must both pass. CI enforces this
-plus `npm run lint` (0 errors) and `npm run fmt:check`.
+**Before every commit, run this checklist.** CI enforces the same steps and
+will reject anything that fails:
 
 ```bash
-npm run check       # tsc --noEmit
-npm test            # vitest run
-npm run lint        # oxlint
-npm run fmt:check   # oxfmt --check
-npm run fmt         # oxfmt (auto-fix)
+npm run check       # tsc --noEmit          — must pass
+npm test            # vitest run             — must pass
+npm run lint        # oxlint                 — must have 0 errors
+npm run fmt         # oxfmt (applies fixes!) — always run before commit
+npm run fmt:check   # oxfmt --check          — must pass (redundant after fmt)
 ```
+
+**Commit checklist — run before `git commit`:**
+
+1. `npx tsc --noEmit` — typecheck passes
+2. `npx vitest run` — all tests pass
+3. `npm run fmt` — format any changed files
+4. `git add -A && git commit`
+
+No exceptions. Two CI failures in a row were caused by skipping step 3.
 
 ## Branches, commits, PRs
 
