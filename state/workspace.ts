@@ -9,7 +9,6 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { RowDataPacket } from "mysql2/promise";
 import {
   loadConnectionsConfig,
   getConnectionsConfigPath,
@@ -19,7 +18,7 @@ import { DatabaseConnectionManager } from "../connection/db-manager";
 import { QueryHistoryStore, FavoriteStore, type HistoryEntry, type FavoriteEntry } from "../history/store";
 import { RelationGraph } from "../relation-graph";
 import type { RelationRow } from "../relation/store";
-import type { RelatedResult, ColumnRelation } from "../types";
+import type { RelatedResult } from "../types";
 import type { SchemaSnapshot } from "../schema/cache";
 import {
   loadSchemaCache,
@@ -328,35 +327,8 @@ export class DatabaseWorkspaceService {
     if (!this.current) throw new Error("No database selected");
     const { connectionId, database: schema } = this.current;
 
-    let fkCount = 0;
-    const pool = this.manager.getPool(connectionId);
-    const fkSql = `
-      SELECT
-        TABLE_SCHEMA,
-        TABLE_NAME,
-        COLUMN_NAME,
-        REFERENCED_TABLE_SCHEMA,
-        REFERENCED_TABLE_NAME,
-        REFERENCED_COLUMN_NAME
-      FROM information_schema.KEY_COLUMN_USAGE
-      WHERE TABLE_SCHEMA = ?
-        AND REFERENCED_COLUMN_NAME IS NOT NULL
-    `;
-    const [rows] = await pool.query(fkSql, [schema]) as [Record<string, any>[], any];
-
-    const fkRelations: ColumnRelation[] = rows.map((row: Record<string, any>) => ({
-      schema: row.TABLE_SCHEMA as string,
-      table: row.TABLE_NAME as string,
-      column: row.COLUMN_NAME as string,
-      condition: "",
-      refSchema: (row.REFERENCED_TABLE_SCHEMA ?? schema) as string,
-      refTable: row.REFERENCED_TABLE_NAME as string,
-      refColumn: row.REFERENCED_COLUMN_NAME as string,
-      relationType: "MANY_TO_ONE",
-    }));
-
-    fkCount = this.relationGraph.mergeForeignKeys(fkRelations);
-    return fkCount;
+    const fkRelations = await this.manager.discoverForeignKeys(connectionId, schema);
+    return this.relationGraph.mergeForeignKeys(fkRelations);
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────

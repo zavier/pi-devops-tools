@@ -161,6 +161,38 @@ export class DatabaseConnectionManager {
     }
   }
 
+  /**
+   * Discover foreign key relationships from information_schema.
+   * Returns ColumnRelation[] suitable for merging into RelationGraph.
+   */
+  async discoverForeignKeys(connectionId: string, schema: string): Promise<import("../types").ColumnRelation[]> {
+    const pool = this.getPool(connectionId);
+    const fkSql = `
+      SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME,
+        COLUMN_NAME,
+        REFERENCED_TABLE_SCHEMA,
+        REFERENCED_TABLE_NAME,
+        REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = ?
+        AND REFERENCED_COLUMN_NAME IS NOT NULL
+    `;
+    const [rows] = await pool.query(fkSql, [schema]) as [Record<string, any>[], any];
+
+    return rows.map((row: Record<string, any>) => ({
+      schema: row.TABLE_SCHEMA as string,
+      table: row.TABLE_NAME as string,
+      column: row.COLUMN_NAME as string,
+      condition: "",
+      refSchema: (row.REFERENCED_TABLE_SCHEMA ?? schema) as string,
+      refTable: row.REFERENCED_TABLE_NAME as string,
+      refColumn: row.REFERENCED_COLUMN_NAME as string,
+      relationType: "MANY_TO_ONE" as const,
+    }));
+  }
+
   /** Close all pools. */
   destroy(): void {
     for (const [, pool] of this.pools) {
