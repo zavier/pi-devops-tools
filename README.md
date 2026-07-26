@@ -15,6 +15,26 @@
 
 ## 安装
 
+### Node.js 环境
+
+pi 扩展运行需要 Node.js ≥ 20。如果你的 pi 尚未安装 Node.js 运行环境，pi 会在首次使用时提示安装。
+
+验证：
+
+```bash
+pi node -- --version   # 应输出 v20.x 或更高
+```
+
+### 安装扩展
+
+**从 npm 安装（推荐）：**
+
+```bash
+pi install npm:pi-devops-tools
+```
+
+**从 GitHub 安装：**
+
 ```bash
 pi install git:github.com/zavier/pi-devops-tools
 ```

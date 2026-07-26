@@ -87,7 +87,8 @@ No exceptions. Two CI failures in a row were caused by skipping step 3.
 1. Merge PRs into `main`.
 2. `npm version minor|patch -m "chore(release): %s"` (bumps, commits, tags `vX.Y.Z`).
 3. `git push --follow-tags`
-4. `gh release create vX.Y.Z --verify-tag --generate-notes`
+4. `npm publish`
+5. `gh release create vX.Y.Z --verify-tag --generate-notes`
 
 The npm tarball is whitelisted by `files` in `package.json`. If you add
 runtime files outside the listed directories, update it and verify with
