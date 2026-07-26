@@ -94,7 +94,7 @@ async function getCompletions(
       .map((s) => ({ value: s + " ", label: s }));
   }
 
-  if (parts.length >= 1 && (parts[0] === "schema" || parts[0] === "query") && ws.isReady()) {
+  if (parts.length >= 1 && (parts[0] === "schema" || parts[0] === "query") && ws.isReady) {
     try {
       const tables = await ws.getTables();
       const partial = hasTrailingSpace ? "" : (parts[1] ?? "");
@@ -122,7 +122,7 @@ export function restoreStatusBar(
     };
   },
 ): void {
-  if (ws.isReady()) {
+  if (ws.isReady) {
     ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
     ctx.ui.setWidget(STATUS_KEY, [
       `🗄 DB：${ws.current!.environment}/${ws.current!.database}`,

@@ -83,7 +83,7 @@ export async function handleSwitch(
   }
 
   // --- Step 3: Pick database ---
-  const conn = ws.manager.getConfig(connectionId);
+  const conn = ws.getConnectionConfig(connectionId);
   const defaultDb = conn?.defaultDatabase;
 
   let database: string;

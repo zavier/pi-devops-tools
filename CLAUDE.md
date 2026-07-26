@@ -35,30 +35,27 @@ All persistent state lives under `~/.pi/database/`:
 | `history.db` | SQLite | `QueryHistoryStore` + `FavoriteStore` + `RelationStore` (3 tables, 1 DB, shared handle via `history.getDb()`) |
 | `schema/<connId>/<db>.json` | JSON | Schema cache — table/column/index snapshots |
 
-### Layer stack (top → bottom)
+### Layer stack (flat)
 
 ```
-commands/          ← /db subcommand handlers (switch, query, schema, tables, history, favorite, relations, refresh-schema)
-  ↓
-state/workspace.ts ← DatabaseWorkspaceService (facade composing all modules)
-state/context.ts   ← WorkspaceContext (current DB selection, persistence, schema cache proxy)
-state/query-runner.ts ← QueryRunner (SQL execution + history recording + lastSql tracking)
-  ↓
-connection/        ← DatabaseConnectionManager (lazy mysql2 pools keyed by connection ID)
-schema/            ← Schema cache read/write/refresh (JSON files on disk)
+commands/          ← /db subcommand handlers — only see the DatabaseWorkspaceService interface
+state/workspace.ts ← DatabaseWorkspaceService — the single deep module behind /db
+                     (absorbs context state, query execution, history, schema cache proxy)
+connection/        ← DatabaseConnectionManager (lazy mysql2 pools) + sql-policy (guard + LIMIT)
+schema/            ← Schema cache read/write/refresh (JSON on disk)
 history/           ← QueryHistoryStore + FavoriteStore (SQLite)
 relation/          ← RelationStore (SQLite, shares history.db)
-relation-graph.ts  ← RelationGraph (in-memory bidirectional graph + BFS traversal for auto-join)
-formatting/        ← formatTableResult — auto layout: horizontal (≤8 cols) / transposed / vertical key-value
+relation-graph.ts  ← RelationGraph (in-memory bidirectional graph + BFS)
+formatting/        ← formatTableResult — auto layout: horizontal / transposed / vertical
 ```
 
 ### Key design patterns
 
+- **Deep workspace module**: `DatabaseWorkspaceService` absorbs WorkspaceContext + QueryRunner into one class. All delegates (`manager`, `history`, `favorites`, `relationGraph`) are private — commands cross the external seam through ~23 purpose-built methods. No command reaches past the facade.
 - **Single execution point**: all queries go through `DatabaseConnectionManager.executeQuery`, which applies the read-only guard and LIMIT policy (`connection/sql-policy.ts` — pure functions, single home of `READONLY_SQL_RE`), then runs on a dedicated checked-out connection (`getConnection → USE → query → release`) so USE and the query can't be split across pool connections. Unbounded SELECTs get `LIMIT n` appended (default 100, per-connection `queryLimit` in connections.yaml); the final SQL is returned as `result.sql` so auto-appended limits are visible to the user. Command handlers import `READONLY_SQL_RE` only for dispatch (table-name vs SQL), never for enforcement.
 - **Cache-first schema**: `getTables()` and `getTableSchema()` check local JSON cache first, fall back to live DB query. Refresh via `/db refresh-schema`.
 - **BFS auto-join**: `RelationGraph.bfsQuery()` traverses the in-memory forward graph, issuing parameterized (`IN (?)`), schema-qualified queries at each hop. Depth-limited (default 2, max 5). It receives a `QueryFn` from its caller rather than a mysql2 pool — the graph stays DB-agnostic and is tested with a stub.
 - **Lazy connections**: MySQL pools are created on first use and cached by connection ID. `destroy()` cleans up all pools.
-- **Facade bypass**: command handlers mix facade calls with direct access to `ws.relationGraph` / `ws.favorites` / `ws.manager` / `ws.history` — the facade is not a hard seam; follow existing usage when adding commands.
 
 ### Relation graph data flow
 

@@ -1,76 +1,222 @@
 /**
- * DatabaseWorkspaceService — thin facade composing the independent modules.
+ * DatabaseWorkspaceService — the single module behind the /db command.
  *
- * Delegates to:
- * - WorkspaceContext — state, switching, schema cache, table access
- * - DatabaseConnectionManager — connection pools
- * - QueryHistoryStore + FavoriteStore — persistence
- * - QueryRunner — query execution + history recording
- * - RelationGraph — table relationships
+ * Absorbs WorkspaceContext (state, switching, schema cache) and QueryRunner
+ * (query execution, history, lastSql) into one deep module. All delegates
+ * are private — commands cross the external seam only through the methods
+ * listed below.
  */
 
-import { loadConnectionsConfig } from "../connection/db-config";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import type { RowDataPacket } from "mysql2/promise";
+import {
+  loadConnectionsConfig,
+  getConnectionsConfigPath,
+  type ResolvedConnectionConfig,
+} from "../connection/db-config";
 import { DatabaseConnectionManager } from "../connection/db-manager";
 import { QueryHistoryStore, FavoriteStore, type HistoryEntry, type FavoriteEntry } from "../history/store";
 import { RelationGraph } from "../relation-graph";
 import type { RelationRow } from "../relation/store";
-import type { RelatedResult } from "../types";
+import type { RelatedResult, ColumnRelation } from "../types";
 import type { SchemaSnapshot } from "../schema/cache";
-import { WorkspaceContext } from "./context";
-import { QueryRunner } from "./query-runner";
+import {
+  loadSchemaCache,
+  refreshSchemaCache,
+  getCachedTables,
+  getCachedTableSchema,
+} from "../schema/cache";
+
+// ====== Paths ======
+
+const STATE_DIR = join(homedir(), ".pi", "database");
+const STATE_FILE = join(STATE_DIR, "workspace.json");
+
+// ====== Internal types ======
+
+interface WorkspaceState {
+  environment: string;
+  connectionId: string;
+  database: string;
+}
+
+// ====== Persistence helpers ======
+
+function loadWorkspace(): WorkspaceState | null {
+  try {
+    if (!existsSync(STATE_FILE)) return null;
+    const raw = readFileSync(STATE_FILE, "utf-8");
+    const data = JSON.parse(raw);
+    if (
+      data &&
+      typeof data.environment === "string" &&
+      typeof data.connectionId === "string" &&
+      typeof data.database === "string"
+    ) {
+      return data as WorkspaceState;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveWorkspace(state: WorkspaceState): void {
+  mkdirSync(STATE_DIR, { recursive: true });
+  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+}
+
+// ====== Service ======
 
 export class DatabaseWorkspaceService {
-  readonly connections = loadConnectionsConfig();
-  readonly manager = new DatabaseConnectionManager(this.connections);
-  readonly history = new QueryHistoryStore();
-  readonly favorites = new FavoriteStore(this.history.getDb());
-  readonly relationGraph = new RelationGraph(this.history.getDb());
+  // ── Private delegates ──────────────────────────────────────────
 
-  private ctx = new WorkspaceContext();
-  private runner = new QueryRunner(this.manager, this.history, this.relationGraph);
+  private connections: ResolvedConnectionConfig[];
+  private manager: DatabaseConnectionManager;
+  private history: QueryHistoryStore;
+  private favorites: FavoriteStore;
+  private relationGraph: RelationGraph;
 
-  // ── Proxy: WorkspaceContext ───────────────────────────────────
+  // ── Internal state ─────────────────────────────────────────────
 
-  get current() { return this.ctx.current; }
-  isReady() { return this.ctx.isReady(); }
-  isConfigured() { return this.ctx.isConfigured(); }
-  get configPath() { return this.ctx.configPath; }
-  get statusLabel() { return this.ctx.statusLabel; }
-  getEnvironments() { return this.ctx.getEnvironments(); }
-  getConnectionIdsForEnv(env: string) { return this.ctx.getConnectionIdsForEnv(env); }
-  getCurrentConnection() { return this.ctx.getCurrentConnection(); }
+  current: WorkspaceState | null;
+  private _lastSql: string | null = null;
 
-  switchTo(environment: string, connectionId: string, database: string) {
-    this.ctx.switchTo(environment, connectionId, database);
+  // ── Constructor ────────────────────────────────────────────────
+
+  constructor() {
+    this.connections = loadConnectionsConfig();
+    this.manager = new DatabaseConnectionManager(this.connections);
+    this.history = new QueryHistoryStore();
+    this.favorites = new FavoriteStore(this.history.getDb());
+    this.relationGraph = new RelationGraph(this.history.getDb());
+    this.current = loadWorkspace();
   }
 
-  async getDatabases(connectionId: string) {
-    return this.ctx.getDatabases(this.manager, connectionId);
+  // ── State checks ───────────────────────────────────────────────
+
+  get isReady(): boolean {
+    return this.current !== null;
   }
 
-  async getTables() { return this.ctx.getTables(this.manager); }
-
-  async getTableSchema(table: string) {
-    return this.ctx.getTableSchema(this.manager, table);
+  get isConfigured(): boolean {
+    return this.connections.length > 0;
   }
 
-  autoLoadSchema() { return this.ctx.autoLoadSchema(); }
-
-  async refreshSchema() {
-    return this.ctx.refreshSchema(this.manager);
+  get configPath(): string {
+    return getConnectionsConfigPath();
   }
 
-  // ── Proxy: QueryRunner ────────────────────────────────────────
+  get statusLabel(): string {
+    if (!this.current) return "";
+    return `🗄 ${this.current.environment}/${this.current.database}`;
+  }
 
-  get lastSql() { return this.runner.lastSql; }
+  // ── lastSql ────────────────────────────────────────────────────
 
-  async executeQuery(sql: string) {
-    if (!this.ctx.current) throw new Error("No database selected");
-    return this.runner.executeQuery(
-      this.ctx.current.connectionId,
-      this.ctx.current.database,
-      sql,
-    );
+  get lastSql(): string | null {
+    return this._lastSql;
+  }
+
+  // ── Environment / connection lookup ────────────────────────────
+
+  getEnvironments(): string[] {
+    return [...new Set(this.connections.map((c) => c.environment))].sort();
+  }
+
+  getConnectionIdsForEnv(env: string): string[] {
+    return this.connections
+      .filter((c) => c.environment === env)
+      .map((c) => c.id)
+      .sort();
+  }
+
+  getCurrentConnection(): ResolvedConnectionConfig | undefined {
+    if (!this.current) return undefined;
+    return this.connections.find((c) => c.id === this.current!.connectionId);
+  }
+
+  /** Look up a connection config by ID — works before switchTo has been called. */
+  getConnectionConfig(connectionId: string): ResolvedConnectionConfig | undefined {
+    return this.connections.find((c) => c.id === connectionId);
+  }
+
+  // ── Switch ─────────────────────────────────────────────────────
+
+  switchTo(environment: string, connectionId: string, database: string): void {
+    this.current = { environment, connectionId, database };
+    saveWorkspace(this.current);
+  }
+
+  // ── Databases (always live) ────────────────────────────────────
+
+  async getDatabases(connectionId: string): Promise<string[]> {
+    return this.manager.getDatabases(connectionId);
+  }
+
+  // ── Tables (cache-first) ───────────────────────────────────────
+
+  async getTables(): Promise<string[]> {
+    if (!this.current) throw new Error("No database selected");
+    const cached = getCachedTables(this.current.connectionId, this.current.database);
+    if (cached) return cached;
+    return this.manager.getTables(this.current.connectionId, this.current.database);
+  }
+
+  // ── Table schema (cache-first) ─────────────────────────────────
+
+  async getTableSchema(
+    table: string,
+  ): Promise<{ columns: Record<string, any>[]; indexes: Record<string, any>[] }> {
+    if (!this.current) throw new Error("No database selected");
+
+    const cached = getCachedTableSchema(this.current.connectionId, this.current.database, table);
+    if (cached) {
+      return {
+        columns: cached.columns.map((c) => ({
+          COLUMN_NAME: c.name,
+          COLUMN_TYPE: c.type,
+          IS_NULLABLE: c.nullable ? "YES" : "NO",
+          COLUMN_KEY: c.key,
+          COLUMN_DEFAULT: c.default,
+          EXTRA: c.extra,
+          COLUMN_COMMENT: c.comment,
+        })),
+        indexes: cached.indexes.flatMap((idx) =>
+          idx.columns.map((col, i) => ({
+            INDEX_NAME: idx.name,
+            COLUMN_NAME: col,
+            NON_UNIQUE: idx.unique ? 0 : 1,
+            SEQ_IN_INDEX: i + 1,
+          })),
+        ),
+      };
+    }
+
+    return this.manager.getTableSchema(this.current.connectionId, this.current.database, table);
+  }
+
+  // ── Schema cache ───────────────────────────────────────────────
+
+  autoLoadSchema(): SchemaSnapshot | null {
+    if (!this.current) return null;
+    return loadSchemaCache(this.current.connectionId, this.current.database);
+  }
+
+  async refreshSchema(): Promise<SchemaSnapshot> {
+    if (!this.current) throw new Error("No database selected");
+    return refreshSchemaCache(this.manager, this.current.connectionId, this.current.database);
+  }
+
+  // ── Query ──────────────────────────────────────────────────────
+
+  async executeQuery(
+    sql: string,
+  ): Promise<{ columns: string[]; rows: Record<string, any>[]; elapsed: string; sql: string }> {
+    if (!this.current) throw new Error("No database selected");
+    return this.manager.executeQuery(this.current.connectionId, this.current.database, sql);
   }
 
   async executeQueryWithRelations(
@@ -79,57 +225,143 @@ export class DatabaseWorkspaceService {
     autoJoin: boolean,
     maxDepth = 2,
     relatedLimit = 10,
-  ) {
-    if (!this.ctx.current) throw new Error("No database selected");
-    return this.runner.executeQueryWithRelations(
-      this.ctx.current.connectionId,
-      this.ctx.current.database,
-      sql,
-      table,
-      autoJoin,
-      maxDepth,
-      relatedLimit,
-    );
+  ): Promise<{
+    columns: string[];
+    rows: Record<string, any>[];
+    elapsed: string;
+    sql: string;
+    related: RelatedResult[];
+  }> {
+    if (!this.current) throw new Error("No database selected");
+    const { connectionId, database } = this.current;
+
+    const result = await this.manager.executeQuery(connectionId, database, sql);
+
+    let related: RelatedResult[] = [];
+
+    if (autoJoin && result.rows.length > 0) {
+      try {
+        related = await this.relationGraph.bfsQuery(
+          (s, params) => this.manager.executeQuery(connectionId, database, s, { params }),
+          database,
+          table,
+          result.rows,
+          maxDepth,
+          relatedLimit,
+        );
+      } catch {
+        // Non-fatal: if relation query fails, still return primary results
+      }
+    }
+
+    return { ...result, related };
   }
 
+  // ── History ────────────────────────────────────────────────────
+
   saveHistory(sql: string, rowCount: number, elapsed: string): HistoryEntry {
-    if (!this.ctx.current) throw new Error("No database selected");
-    return this.runner.saveHistory(
-      this.ctx.current.connectionId,
-      this.ctx.current.environment,
-      this.ctx.current.database,
+    if (!this.current) throw new Error("No database selected");
+    this._lastSql = sql;
+    return this.history.save({
+      connectionId: this.current.connectionId,
+      environment: this.current.environment,
+      database: this.current.database,
       sql,
       rowCount,
       elapsed,
-    );
+    });
   }
 
-  // ── Proxy: Favorites ──────────────────────────────────────────
+  listHistory(keyword?: string): HistoryEntry[] {
+    const filter: { limit: number; keyword?: string } = { limit: 20 };
+    if (keyword) filter.keyword = keyword;
+    if (this.current) (filter as any).database = this.current.database;
+    return this.history.list(filter);
+  }
+
+  // ── Favorites ──────────────────────────────────────────────────
 
   saveFavorite(name: string, sql: string, description?: string): FavoriteEntry {
     return this.favorites.save({
       name,
       sql,
-      database: this.ctx.current?.database ?? "",
+      database: this.current?.database ?? "",
       description: description ?? "",
     });
   }
 
-  getFavorites(keyword?: string): FavoriteEntry[] {
+  listFavorites(keyword?: string): FavoriteEntry[] {
     return this.favorites.list({
-      database: this.ctx.current?.database,
+      database: this.current?.database,
       keyword,
     });
   }
 
-  // ── Proxy: Relations ──────────────────────────────────────────
-
-  getRelations(table?: string): RelationRow[] {
-    if (!this.ctx.current) return this.relationGraph.listAll();
-    return this.relationGraph.list(this.ctx.current.database, table);
+  deleteFavorite(id: number): boolean {
+    return this.favorites.delete(id);
   }
 
-  // ── Lifecycle ─────────────────────────────────────────────────
+  // ── Relations ──────────────────────────────────────────────────
+
+  listRelations(table?: string): RelationRow[] {
+    if (!this.current) return this.relationGraph.listAll();
+    return this.relationGraph.list(this.current.database, table);
+  }
+
+  registerRelation(
+    sourceTable: string, sourceColumn: string,
+    refTable: string, refColumn: string,
+    opts?: { condition?: string; relationType?: string },
+  ): RelationRow {
+    if (!this.current) throw new Error("No database selected");
+    const schema = this.current.database;
+    return this.relationGraph.register(
+      { schema, table: sourceTable, column: sourceColumn, condition: opts?.condition || undefined },
+      { schema, table: refTable, column: refColumn },
+      opts?.relationType ?? "MANY_TO_ONE",
+    );
+  }
+
+  removeRelation(id: number): boolean {
+    return this.relationGraph.removeById(id);
+  }
+
+  async discoverForeignKeys(): Promise<number> {
+    if (!this.current) throw new Error("No database selected");
+    const { connectionId, database: schema } = this.current;
+
+    let fkCount = 0;
+    const pool = this.manager.getPool(connectionId);
+    const fkSql = `
+      SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME,
+        COLUMN_NAME,
+        REFERENCED_TABLE_SCHEMA,
+        REFERENCED_TABLE_NAME,
+        REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = ?
+        AND REFERENCED_COLUMN_NAME IS NOT NULL
+    `;
+    const [rows] = await pool.query(fkSql, [schema]) as [Record<string, any>[], any];
+
+    const fkRelations: ColumnRelation[] = rows.map((row: Record<string, any>) => ({
+      schema: row.TABLE_SCHEMA as string,
+      table: row.TABLE_NAME as string,
+      column: row.COLUMN_NAME as string,
+      condition: "",
+      refSchema: (row.REFERENCED_TABLE_SCHEMA ?? schema) as string,
+      refTable: row.REFERENCED_TABLE_NAME as string,
+      refColumn: row.REFERENCED_COLUMN_NAME as string,
+      relationType: "MANY_TO_ONE",
+    }));
+
+    fkCount = this.relationGraph.mergeForeignKeys(fkRelations);
+    return fkCount;
+  }
+
+  // ── Lifecycle ──────────────────────────────────────────────────
 
   destroy(): void {
     this.manager.destroy();

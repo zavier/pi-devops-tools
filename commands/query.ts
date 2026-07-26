@@ -119,7 +119,7 @@ async function queryByTable(
   );
   if (where === undefined) return;
 
-  const hasRelations = ws.getRelations(table).length > 0;
+  const hasRelations = ws.listRelations(table).length > 0;
 
   let autoJoin = false;
   if (hasRelations) {
@@ -173,7 +173,7 @@ export async function handleQuery(
   pi: ExtensionAPI,
   tableArg?: string,
 ): Promise<void> {
-  if (!ws.isReady()) {
+  if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
     return;
   }

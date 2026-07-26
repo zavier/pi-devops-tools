@@ -10,7 +10,7 @@ export async function handleRefreshSchema(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
 ): Promise<void> {
-  if (!ws.isReady()) {
+  if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
     return;
   }

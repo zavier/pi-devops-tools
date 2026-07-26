@@ -1,13 +1,12 @@
 /**
  * /db relations — table relationship management.
  *
- * Subcommands: add, remove, discover (FK + AI), er-diagram.
+ * Subcommands: add, remove, discover (FK sync), er-diagram.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { RelationRow } from "../relation/store";
-import type { ColumnRelation } from "../types";
 import { pickTable } from "./utils";
 
 // ── List formatting ─────────────────────────────────────────────
@@ -61,7 +60,7 @@ async function handleRelationsList(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
 ): Promise<void> {
-  const rows = ws.getRelations();
+  const rows = ws.listRelations();
 
   if (rows.length === 0) {
     ctx.ui.notify(formatRelationsList([]), "info");
@@ -92,7 +91,7 @@ async function handleRelationsList(
       ["取消", "确认删除"],
     );
     if (confirm === "确认删除") {
-      ws.relationGraph.removeById(entry.id);
+      ws.removeRelation(entry.id);
       ctx.ui.notify(
         `已删除关系 #${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
         "info",
@@ -108,12 +107,10 @@ async function handleRelationsAdd(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
 ): Promise<void> {
-  if (!ws.isReady()) {
+  if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
     return;
   }
-
-  const schema = ws.current!.database;
 
   const srcTable = await pickTable(ctx, ws, "选择源表");
   if (!srcTable) return;
@@ -154,10 +151,10 @@ async function handleRelationsAdd(
   );
   if (!relationType) return;
 
-  const row = ws.relationGraph.register(
-    { schema, table: srcTable, column: srcCol, condition: condition.trim() || undefined },
-    { schema, table: refTable, column: refCol },
-    relationType,
+  const row = ws.registerRelation(
+    srcTable, srcCol,
+    refTable, refCol,
+    { condition: condition.trim() || undefined, relationType },
   );
 
   ctx.ui.notify(
@@ -173,7 +170,7 @@ async function handleRelationsRemove(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
 ): Promise<void> {
-  const rows = ws.getRelations();
+  const rows = ws.listRelations();
   if (rows.length === 0) {
     ctx.ui.notify("暂无表关联关系", "info");
     return;
@@ -197,55 +194,28 @@ async function handleRelationsRemove(
   );
 
   if (confirm === "确认删除") {
-    ws.relationGraph.removeById(entry.id);
+    ws.removeRelation(entry.id);
     ctx.ui.notify(`已删除关系 #${entry.id}`, "info");
   }
 }
 
-// ── Discover (FK + AI) ──────────────────────────────────────────
+// ── Discover (FK sync) ──────────────────────────────────────────
 
 async function handleRelationsDiscover(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
 ): Promise<void> {
-  if (!ws.isReady()) {
+  if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
     return;
   }
 
   const schema = ws.current!.database;
-  const connectionId = ws.current!.connectionId;
 
   let fkCount = 0;
   try {
-    const pool = ws.manager.getPool(connectionId);
-    const fkSql = `
-      SELECT
-        TABLE_SCHEMA,
-        TABLE_NAME,
-        COLUMN_NAME,
-        REFERENCED_TABLE_SCHEMA,
-        REFERENCED_TABLE_NAME,
-        REFERENCED_COLUMN_NAME
-      FROM information_schema.KEY_COLUMN_USAGE
-      WHERE TABLE_SCHEMA = ?
-        AND REFERENCED_COLUMN_NAME IS NOT NULL
-    `;
-    const [rows] = await pool.query(fkSql, [schema]) as [Record<string, any>[], any];
-
-    const fkRelations: ColumnRelation[] = rows.map((row: Record<string, any>) => ({
-      schema: row.TABLE_SCHEMA as string,
-      table: row.TABLE_NAME as string,
-      column: row.COLUMN_NAME as string,
-      condition: "",
-      refSchema: (row.REFERENCED_TABLE_SCHEMA ?? schema) as string,
-      refTable: row.REFERENCED_TABLE_NAME as string,
-      refColumn: row.REFERENCED_COLUMN_NAME as string,
-      relationType: "MANY_TO_ONE",
-    }));
-
-    fkCount = ws.relationGraph.mergeForeignKeys(fkRelations);
+    fkCount = await ws.discoverForeignKeys();
   } catch (err: any) {
     ctx.ui.notify(`外键同步失败：${err.message}`, "warning");
   }
@@ -329,12 +299,10 @@ async function handleRelationsERDiagram(
   ws: DatabaseWorkspaceService,
   table?: string,
 ): Promise<void> {
-  if (!ws.isReady()) {
+  if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
     return;
   }
-
-  const schema = ws.current!.database;
 
   if (!table) {
     const picked = await pickTable(ctx, ws, "选择表");
@@ -351,7 +319,7 @@ async function handleRelationsERDiagram(
     return;
   }
 
-  const relations = ws.getRelations(table);
+  const relations = ws.listRelations(table);
   const relatedTableNames = new Set<string>();
   for (const r of relations) {
     relatedTableNames.add(r.ref_table);

@@ -107,7 +107,7 @@ async function handleFavoriteList(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
 ): Promise<void> {
-  const entries = ws.getFavorites();
+  const entries = ws.listFavorites();
 
   if (entries.length === 0) {
     ctx.ui.notify(
@@ -150,7 +150,7 @@ async function handleFavoriteList(
       ["取消", "确认删除"],
     );
     if (confirm === "确认删除") {
-      ws.favorites.delete(entry.id);
+      ws.deleteFavorite(entry.id);
       ctx.ui.notify(`已删除收藏 #${entry.id} "${entry.name}"`, "info");
     }
   }

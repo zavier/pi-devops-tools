@@ -4,7 +4,6 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import type { HistoryEntry } from "../history/store";
 
 export async function handleHistory(
   ctx: ExtensionCommandContext,
@@ -12,15 +11,7 @@ export async function handleHistory(
   keyword?: string,
 ): Promise<void> {
   try {
-    const filter: { limit: number; keyword?: string } = { limit: 20 };
-    if (keyword) filter.keyword = keyword;
-
-    let entries: HistoryEntry[];
-    if (ws.current) {
-      entries = ws.history.list({ ...filter, database: ws.current.database });
-    } else {
-      entries = ws.history.list(filter);
-    }
+    const entries = ws.listHistory(keyword);
 
     if (entries.length === 0) {
       ctx.ui.notify(

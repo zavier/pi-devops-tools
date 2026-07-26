@@ -116,19 +116,3 @@ export function getConnectionsConfigPath(): string {
   return CONFIG_FILE;
 }
 
-/**
- * Get distinct environments from the resolved config list.
- */
-export function getEnvironments(connections: ResolvedConnectionConfig[]): string[] {
-  return [...new Set(connections.map(c => c.environment))].sort();
-}
-
-/**
- * Filter connections by environment.
- */
-export function getConnectionsByEnv(
-  connections: ResolvedConnectionConfig[],
-  env: string
-): ResolvedConnectionConfig[] {
-  return connections.filter(c => c.environment === env);
-}
