@@ -1,6 +1,6 @@
 {
   "name": "pi-devops-tools",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Database workspace extension for pi — query MySQL with schema caching, relation graph, and query history",
   "keywords": [
     "database",
