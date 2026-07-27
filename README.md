@@ -111,14 +111,17 @@ connections:
 /db schema users
 ```
 
-### `/db query [表名]`
+### `/db query [表名|SQL]`
 
-交互式查询 — 选表后输入 WHERE 条件，或直接写 SQL。
+查询数据。三种方式：
 
 ```
-/db query users          → 选表，输入 WHERE 条件
-/db query "SELECT * FROM users WHERE status = 'active'"
+/db query                       → 交互选择：选表 + WHERE，或输入完整 SQL
+/db query users                 → 选表模式（已知表名），输入 WHERE 条件
+/db query SELECT * FROM users WHERE status = 'active'  → 直接执行 SQL
 ```
+
+参数是表名还是 SQL 由框架自动判断 — 命中已知表名走选表模式，以 `SELECT`/`SHOW`/`DESCRIBE`/`EXPLAIN` 开头则直接执行。
 
 结果自动选择最佳展示格式：
 

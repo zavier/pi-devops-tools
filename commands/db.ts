@@ -51,7 +51,7 @@ export function registerDbCommand(pi: ExtensionAPI, ws: DatabaseWorkspaceService
           await handleSchema(ctx, ws, rest[0]);
           break;
         case "query":
-          await handleQuery(ctx, ws, pi, rest[0]);
+          await handleQuery(ctx, ws, pi, rest.join(" ") || undefined);
           break;
         case "history":
           await handleHistory(ctx, ws, rest[0]);
