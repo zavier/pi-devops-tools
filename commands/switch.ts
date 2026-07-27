@@ -10,6 +10,7 @@ export const STATUS_KEY = "db-workspace";
 export async function showWorkspacePanel(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
+  pi?: ExtensionAPI,
 ): Promise<void> {
   const lines: string[] = [];
 
@@ -63,7 +64,42 @@ export async function showWorkspacePanel(
   lines.push("  /db relations       表关联关系管理");
   lines.push("  /db refresh-schema  刷新表结构缓存");
 
-  ctx.ui.notify(lines.join("\n"), "info");
+  const displayText = lines.join("\n");
+  ctx.ui.notify(displayText, "info");
+
+  // Inject into AI context so the model sees the current workspace state.
+  // When no connections are configured, the AI can proactively help the user
+  // create the config file and suggest reloading the extension.
+  if (pi) {
+    const contextLines = [...lines];
+
+    if (!ws.isConfigured) {
+      contextLines.push(
+        "",
+        "---",
+        "",
+        "💡 **提示给 AI**：如果你正在协助用户，可以帮他们：",
+        "1. 询问数据库连接信息（host、port、username、password、数据库名）",
+        `2. 在 ${ws.configPath} 中创建或更新连接配置`,
+        "3. 配置完成后让用户执行 `/db switch` 即可连接，无需 reload",
+        "",
+        "如果用户已经告诉你连接信息，请主动帮他们生成配置文件。",
+      );
+    }
+
+    // When no connections exist, trigger a turn so the AI proactively
+    // asks the user for connection details and helps create the config.
+    const shouldTriggerTurn = !ws.isConfigured;
+
+    pi.sendMessage(
+      {
+        customType: "db-workspace-panel",
+        content: contextLines.join("\n"),
+        display: false,
+      },
+      { deliverAs: "followUp", triggerTurn: shouldTriggerTurn },
+    );
+  }
 }
 
 export async function handleSwitch(

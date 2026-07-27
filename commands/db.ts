@@ -39,7 +39,7 @@ export function registerDbCommand(pi: ExtensionAPI, ws: DatabaseWorkspaceService
 
       switch (sub) {
         case undefined:
-          await showWorkspacePanel(ctx, ws);
+          await showWorkspacePanel(ctx, ws, pi);
           break;
         case "switch":
           await handleSwitch(ctx, ws, pi);
