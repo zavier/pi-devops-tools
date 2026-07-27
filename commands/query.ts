@@ -62,25 +62,41 @@ async function displayQueryResult(
     /* non-fatal */
   }
 
-  const lines = [
+  const formattedData = formatTableResult({ columns: result.columns, rows: result.rows });
+  const relatedText = related.length > 0 ? formatRelatedResults(related) : "";
+
+  const displayLines = [
     `═══ 查询 — ${ws.current!.database} ═══`,
     `SQL：${result.sql}`,
     `行数：${result.rows.length}（${result.elapsed}）`,
     "",
-    formatTableResult({ columns: result.columns, rows: result.rows }),
+    formattedData,
   ];
   if (related.length > 0) {
-    lines.push(formatRelatedResults(related), `共查询 ${1 + related.length} 个表`);
+    displayLines.push(relatedText, `共查询 ${1 + related.length} 个表`);
   }
 
-  ctx.ui.notify(lines.join("\n"), "info");
+  ctx.ui.notify(displayLines.join("\n"), "info");
+
+  // Send result text to the AI context so the model can reason about the data.
+  // deliverAs: "context" adds it silently without triggering a turn.
+  const contextContent = [
+    `## 数据库查询结果`,
+    ``,
+    `**数据库**：${ws.current!.database}`,
+    `**SQL**：${result.sql}`,
+    `**行数**：${result.rows.length}（${result.elapsed}）`,
+    ``,
+    formattedData,
+  ];
+  if (related.length > 0) {
+    contextContent.push(``, `### 关联表（${related.length} 个）`, ``, relatedText);
+  }
 
   pi.sendMessage(
     {
       customType: "db-query-result",
-      content:
-        `[DB Query] ${ws.current!.database}: ${result.sql} → ${result.rows.length} rows, ${result.columns.length} cols (${result.elapsed})` +
-        (related.length > 0 ? ` + ${related.length} related tables` : ""),
+      content: contextContent.join("\n"),
       display: false,
     },
     { deliverAs: "followUp", triggerTurn: false },
