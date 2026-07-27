@@ -101,6 +101,21 @@ export class DatabaseWorkspaceService {
     this.current = loadWorkspace(this.store.workspaceFile);
   }
 
+  // ── Config reload ────────────────────────────────────────────
+
+  /**
+   * Reload connections config from disk. Useful after the user (or AI on
+   * their behalf) has created or edited connections.yaml — no /reload
+   * needed. The connection manager is replaced so new pools will be
+   * created for added connections; existing pools are left untouched.
+   */
+  reloadConfig(): void {
+    const result = loadConnectionsConfig(this.store.connectionsFile);
+    this.connections = result.connections;
+    this.configWarnings = result.warnings;
+    this.manager = new DatabaseConnectionManager(this.connections);
+  }
+
   // ── State checks ───────────────────────────────────────────────
 
   get isReady(): boolean {

@@ -107,6 +107,9 @@ export async function handleSwitch(
   ws: DatabaseWorkspaceService,
   _pi: ExtensionAPI,
 ): Promise<void> {
+  // Reload config to pick up changes made without /reload (e.g. AI-created file)
+  ws.reloadConfig();
+
   // --- Step 1: Pick environment ---
   const environments = ws.getEnvironments();
   if (environments.length === 0) {
