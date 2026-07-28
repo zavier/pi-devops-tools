@@ -7,6 +7,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { STATUS_KEY, showWorkspacePanel, handleSwitch } from "./switch";
+import { handleAdd } from "./add";
 import { handleTables } from "./tables";
 import { handleSchema } from "./schema";
 import { handleQuery } from "./query";
@@ -27,6 +28,7 @@ interface AutocompleteItem {
 
 const SUBCOMMANDS = [
   "switch",
+  "add",
   "tables",
   "schema",
   "query",
@@ -42,7 +44,7 @@ export function registerDbCommand(
 ): void {
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | switch | tables | schema <table> | query [table] | history [kw] | favorite | relations | refresh-schema",
+      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | refresh-schema",
 
     getArgumentCompletions: async (prefix) => {
       return getCompletions(prefix, getWorkspace());
@@ -61,6 +63,9 @@ export function registerDbCommand(
           break;
         case "switch":
           await handleSwitch(ctx, ws, pi);
+          break;
+        case "add":
+          await handleAdd(ctx, ws);
           break;
         case "tables":
           await handleTables(ctx, ws, pi);

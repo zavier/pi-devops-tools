@@ -7,6 +7,7 @@
  * listed below.
  */
 
+import { load as parseYaml, dump } from "js-yaml";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -115,6 +116,60 @@ export class DatabaseWorkspaceService {
     this.configWarnings = result.warnings;
     this.manager.destroy();
     this.manager = new DatabaseConnectionManager(this.connections);
+  }
+
+  /**
+   * Add a new connection to connections.yaml and hot-reload.
+   * Creates the file and parent directories if they don't exist.
+   */
+  createConnection(
+    env: string,
+    name: string,
+    cfg: {
+      environment: string;
+      type: "mysql" | "postgres";
+      host: string;
+      port: number;
+      username: string;
+      password: string;
+      defaultDatabase?: string;
+    },
+  ): void {
+    const filePath = this.store.connectionsFile;
+    const dir = join(filePath, "..");
+
+    // Read existing or start fresh.
+    let data: Record<string, any> = { connections: {} };
+    if (existsSync(filePath)) {
+      const raw = readFileSync(filePath, "utf-8");
+      if (raw.trim()) {
+        const parsed = parseYaml(raw) as Record<string, any>;
+        if (parsed && typeof parsed === "object" && parsed.connections) {
+          data = parsed;
+        }
+      }
+    }
+
+    // Build the connection entry.
+    const entry: Record<string, any> = {
+      environment: cfg.environment,
+      type: cfg.type,
+      host: cfg.host,
+      port: cfg.port,
+      username: cfg.username,
+      password: cfg.password,
+    };
+    if (cfg.defaultDatabase) {
+      entry.defaultDatabase = cfg.defaultDatabase;
+    }
+
+    data.connections[name] = entry;
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(filePath, dump(data), "utf-8");
+
+    // Hot-reload so the new connection is immediately available.
+    this.reloadConfig();
   }
 
   // ── State checks ───────────────────────────────────────────────

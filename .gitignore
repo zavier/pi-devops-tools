@@ -27,3 +27,4 @@ coverage/
 
 # OS noise
 Thumbs.db
+.pi/

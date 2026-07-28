@@ -30,10 +30,22 @@ export default function (pi: ExtensionAPI) {
     // Tell the LLM which database is active when resuming a session,
     // so it doesn't have to discover via a failed tool call.
     if (ws.isReady) {
+      const db = ws.current!;
       pi.sendMessage(
         {
           customType: "db-active-db",
-          content: `Current database: ${ws.current!.database} (connection: ${ws.current!.connectionId}, environment: ${ws.current!.environment}).`,
+          content: `Current database: ${db.database} (connection: ${db.connectionId}, environment: ${db.environment}). Config file: ${ws.configPath}.`,
+          display: false,
+        },
+        { deliverAs: "followUp", triggerTurn: false },
+      );
+    } else if (ws.isConfigured) {
+      // Configured but not yet switched — let the AI know so it can
+      // help the user pick a database.
+      pi.sendMessage(
+        {
+          customType: "db-hint",
+          content: `Database connections are configured but no database is selected. Tell the user to run /db switch to connect. Config file: ${ws.configPath}.`,
           display: false,
         },
         { deliverAs: "followUp", triggerTurn: false },

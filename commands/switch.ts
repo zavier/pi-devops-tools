@@ -56,6 +56,7 @@ export async function showWorkspacePanel(
   lines.push("");
   lines.push("命令：");
   lines.push("  /db switch          选择环境和数据库");
+  lines.push("  /db add             添加新连接");
   lines.push("  /db tables          列出所有表");
   lines.push("  /db schema <表名>   查看表结构");
   lines.push("  /db query [表名]    选表 → WHERE → 查询");
@@ -64,40 +65,29 @@ export async function showWorkspacePanel(
   lines.push("  /db relations       表关联关系管理");
   lines.push("  /db refresh-schema  刷新表结构缓存");
 
-  // display: true renders the panel in the chat (persistent, raw-text
-  // renderer) and puts the same content into the LLM context, so the model
-  // sees the current workspace state. When no connections are configured the
-  // AI can proactively help create the config file.
+  // Visible panel for the user (raw-text renderer).
   if (pi) {
-    const contextLines = [...lines];
-
-    if (!ws.isConfigured) {
-      contextLines.push(
-        "",
-        "---",
-        "",
-        "💡 **提示给 AI**：如果你正在协助用户，可以帮他们：",
-        "1. 询问数据库连接信息（host、port、username、password、数据库名）",
-        `2. 在 ${ws.configPath} 中创建或更新连接配置`,
-        "3. 配置完成后让用户执行 `/db switch` 即可连接，无需 reload",
-        "",
-        "如果用户已经告诉你连接信息，请主动帮他们生成配置文件。",
-      );
-    }
-
-    // deliverAs "followUp" commits immediately when the agent is idle so the
-    // panel renders right away instead of waiting for the next user prompt.
-    // When no connections are configured we also trigger a turn so the AI
-    // proactively asks for connection details.
-    const shouldTriggerTurn = !ws.isConfigured;
-
     pi.sendMessage(
       {
         customType: "db-workspace-panel",
-        content: contextLines.join("\n"),
+        content: lines.join("\n"),
         display: true,
       },
-      { deliverAs: "followUp", triggerTurn: shouldTriggerTurn },
+      { deliverAs: "followUp", triggerTurn: false },
+    );
+  }
+
+  // Silent hint for the LLM when no connections are configured.
+  // display: false keeps it out of the chat; triggerTurn makes the AI
+  // proactively offer to help set up the first connection.
+  if (!ws.isConfigured && pi) {
+    pi.sendMessage(
+      {
+        customType: "db-hint",
+        content: `No database connections are configured yet. Help the user create their first connection in ${ws.configPath}. Ask for host, port, username, password, and default database name. After the config file is written, tell the user to run /db switch to connect.`,
+        display: false,
+      },
+      { deliverAs: "followUp", triggerTurn: true },
     );
   }
 }
