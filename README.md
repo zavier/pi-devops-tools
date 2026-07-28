@@ -187,12 +187,12 @@ connections:
 
 扩展注册了 4 个只读工具，AI 可以直接调用而无需用户输入 `/db` 命令：
 
-| 工具名 | 描述 |
-|---|---|
-| `db_query` | 执行只读 SQL 查询（与 `/db query` 相同的安全限制） |
-| `db_list_tables` | 列出当前数据库的所有表 |
-| `db_table_schema` | 查看指定表的结构（列、索引） |
-| `db_register_relation` | 注册表关联关系（discover → AI 分析 → 注册闭环） |
+| 工具名                 | 描述                                               |
+| ---------------------- | -------------------------------------------------- |
+| `db_query`             | 执行只读 SQL 查询（与 `/db query` 相同的安全限制） |
+| `db_list_tables`       | 列出当前数据库的所有表                             |
+| `db_table_schema`      | 查看指定表的结构（列、索引）                       |
+| `db_register_relation` | 注册表关联关系（discover → AI 分析 → 注册闭环）    |
 
 AI 调用这些工具时遵循与用户命令相同的只读保护：只能执行 SELECT/SHOW/DESCRIBE/EXPLAIN，DELETE/DROP/UPDATE 等写操作会被拒绝。查询结果以折叠表格形式渲染，支持关联表展开。
 
