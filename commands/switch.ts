@@ -64,12 +64,10 @@ export async function showWorkspacePanel(
   lines.push("  /db relations       表关联关系管理");
   lines.push("  /db refresh-schema  刷新表结构缓存");
 
-  const displayText = lines.join("\n");
-  ctx.ui.notify(displayText, "info");
-
-  // Inject into AI context so the model sees the current workspace state.
-  // When no connections are configured, the AI can proactively help the user
-  // create the config file and suggest reloading the extension.
+  // display: true renders the panel in the chat (persistent, raw-text
+  // renderer) and puts the same content into the LLM context, so the model
+  // sees the current workspace state. When no connections are configured the
+  // AI can proactively help create the config file.
   if (pi) {
     const contextLines = [...lines];
 
@@ -87,15 +85,17 @@ export async function showWorkspacePanel(
       );
     }
 
-    // When no connections exist, trigger a turn so the AI proactively
-    // asks the user for connection details and helps create the config.
+    // deliverAs "followUp" commits immediately when the agent is idle so the
+    // panel renders right away instead of waiting for the next user prompt.
+    // When no connections are configured we also trigger a turn so the AI
+    // proactively asks for connection details.
     const shouldTriggerTurn = !ws.isConfigured;
 
     pi.sendMessage(
       {
         customType: "db-workspace-panel",
         content: contextLines.join("\n"),
-        display: false,
+        display: true,
       },
       { deliverAs: "followUp", triggerTurn: shouldTriggerTurn },
     );
@@ -105,7 +105,7 @@ export async function showWorkspacePanel(
 export async function handleSwitch(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
-  _pi: ExtensionAPI,
+  pi: ExtensionAPI,
 ): Promise<void> {
   // If no connections are loaded yet (e.g. config file was just created by AI),
   // hot-reload from disk so the user doesn't need /reload.
@@ -179,6 +179,17 @@ export async function handleSwitch(
 
   ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
   ctx.ui.setWidget(STATUS_KEY, [`🗄 DB: ${env}/${database}`, `连接: ${connectionId}`]);
+
+  // Tell the LLM which database is active so it doesn't have to guess.
+  // display: false avoids cluttering the chat with a redundant message.
+  pi.sendMessage(
+    {
+      customType: "db-active-db",
+      content: `Current database: ${database} (connection: ${connectionId}, environment: ${env}). Use db_query, db_list_tables, and db_table_schema to query this database.`,
+      display: false,
+    },
+    { deliverAs: "followUp", triggerTurn: false },
+  );
 
   const cache = ws.autoLoadSchema();
   if (cache) {

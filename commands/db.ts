@@ -4,7 +4,7 @@
  * Thin router: delegates to per-subcommand handler modules.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { STATUS_KEY, showWorkspacePanel, handleSwitch } from "./switch";
 import { handleTables } from "./tables";
@@ -15,7 +15,7 @@ import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
 import { handleRefreshSchema } from "./refresh-schema";
 
-// ====== Autocomplete item type ======
+// ====== Autocomplete item type (structurally matches pi-tui AutocompleteItem) ======
 
 interface AutocompleteItem {
   value: string;
@@ -25,16 +25,34 @@ interface AutocompleteItem {
 
 // ====== Command registration ======
 
-export function registerDbCommand(pi: ExtensionAPI, ws: DatabaseWorkspaceService): void {
+const SUBCOMMANDS = [
+  "switch",
+  "tables",
+  "schema",
+  "query",
+  "history",
+  "favorite",
+  "relations",
+  "refresh-schema",
+] as const;
+
+export function registerDbCommand(
+  pi: ExtensionAPI,
+  getWorkspace: () => DatabaseWorkspaceService,
+): void {
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | /db switch | /db tables | /db schema <table> | /db query [table] | /db history | /db favorite | /db relations | /db refresh-schema",
+      "Database workspace: /db (panel) | switch | tables | schema <table> | query [table] | history [kw] | favorite | relations | refresh-schema",
 
     getArgumentCompletions: async (prefix) => {
-      return getCompletions(prefix, ws);
+      return getCompletions(prefix, getWorkspace());
     },
 
     handler: async (args, ctx) => {
+      // Dialogs are no-ops without a UI (print/json modes) — bail out early.
+      if (!ctx.hasUI) return;
+
+      const ws = getWorkspace();
       const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean);
 
       switch (sub) {
@@ -45,10 +63,10 @@ export function registerDbCommand(pi: ExtensionAPI, ws: DatabaseWorkspaceService
           await handleSwitch(ctx, ws, pi);
           break;
         case "tables":
-          await handleTables(ctx, ws);
+          await handleTables(ctx, ws, pi);
           break;
         case "schema":
-          await handleSchema(ctx, ws, rest[0]);
+          await handleSchema(ctx, ws, pi, rest[0]);
           break;
         case "query":
           await handleQuery(ctx, ws, pi, rest.join(" ") || undefined);
@@ -66,10 +84,7 @@ export function registerDbCommand(pi: ExtensionAPI, ws: DatabaseWorkspaceService
           await handleRefreshSchema(ctx, ws);
           break;
         default:
-          ctx.ui.notify(
-            `未知命令: ${sub}。可用：switch, tables, schema, query, history, favorite, relations, refresh-schema`,
-            "warning",
-          );
+          ctx.ui.notify(`未知命令: ${sub}。可用：${SUBCOMMANDS.join(", ")}`, "warning");
       }
     },
   });
@@ -81,35 +96,58 @@ async function getCompletions(
   prefix: string,
   ws: DatabaseWorkspaceService,
 ): Promise<AutocompleteItem[] | null> {
-  const subcommands = [
-    "switch",
-    "tables",
-    "schema",
-    "query",
-    "history",
-    "favorite",
-    "relations",
-    "refresh-schema",
-  ];
   const parts = prefix.trim().split(/\s+/);
   const hasTrailingSpace = prefix.endsWith(" ");
 
-  if (parts.length === 1 && !hasTrailingSpace && prefix.length > 1) {
-    return subcommands
-      .filter((s) => s.startsWith(parts[0]))
-      .map((s) => ({ value: s + " ", label: s }));
+  const sub = parts[0];
+  const partial = hasTrailingSpace ? "" : (parts[1] ?? "");
+
+  const subSubs: Record<string, string[]> = {
+    favorite: ["add"],
+    relations: ["add", "remove", "discover", "er-diagram"],
+  };
+
+  // When the first word is an EXACT match for a subcommand that owns
+  // sub-subcommands, show the second level immediately. This covers both
+  // "relations" (partial typing) and "relations " (Tab-completed with
+  // trailing space that pi may have stripped).
+  if (parts.length === 1 && SUBCOMMANDS.includes(sub as any) && sub in subSubs) {
+    return subSubs[sub]
+      .filter((s) => s.startsWith(partial))
+      .map((s) => ({ value: `${sub} ${s} `, label: s }));
   }
 
-  if (parts.length >= 1 && (parts[0] === "schema" || parts[0] === "query") && ws.isReady) {
+  // Table-name arguments (schema, query) — fire BEFORE the first-level
+  // partial match so exact subcommand matches don't self-reference.
+  const takesTable =
+    sub === "schema" || sub === "query" || (sub === "relations" && parts[1] === "er-diagram");
+  if (takesTable && ws.isReady) {
     try {
       const tables = await ws.getTables();
-      const partial = hasTrailingSpace ? "" : (parts[1] ?? "");
-      const sub = parts[0];
+      const tablePartial =
+        sub === "relations" ? (hasTrailingSpace ? "" : (parts[2] ?? "")) : partial;
+      const valuePrefix = sub === "relations" ? "relations er-diagram " : `${sub} `;
       return tables
-        .filter((t) => t.toLowerCase().startsWith(partial.toLowerCase()))
-        .map((t) => ({ value: `${sub} ${t}`, label: t }));
+        .filter((t) => t.toLowerCase().startsWith(tablePartial.toLowerCase()))
+        .map((t) => ({ value: `${valuePrefix}${t}`, label: t }));
     } catch {
       return null;
+    }
+  }
+
+  // First argument: subcommand names (partial match).
+  if (parts.length === 1 && !hasTrailingSpace) {
+    return SUBCOMMANDS.filter((s) => s.startsWith(sub)).map((s) => ({
+      value: s + " ",
+      label: s,
+    }));
+  }
+
+  // Mid-typing sub-subcommand filtering (e.g. "relations a" → "add").
+  if (subSubs[sub] && parts.length === 2 && !hasTrailingSpace) {
+    const filtered = subSubs[sub].filter((s) => s.startsWith(partial));
+    if (filtered.length > 0) {
+      return filtered.map((s) => ({ value: `${sub} ${s} `, label: s }));
     }
   }
 
@@ -119,15 +157,7 @@ async function getCompletions(
 // ====== Status bar helpers ======
 
 /** Restore status bar on session start. */
-export function restoreStatusBar(
-  ws: DatabaseWorkspaceService,
-  ctx: {
-    ui: {
-      setStatus(key: string, text: string | undefined): void;
-      setWidget(key: string, lines: string[] | undefined): void;
-    };
-  },
-): void {
+export function restoreStatusBar(ws: DatabaseWorkspaceService, ctx: ExtensionContext): void {
   if (ws.isReady) {
     ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
     ctx.ui.setWidget(STATUS_KEY, [
