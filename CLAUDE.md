@@ -34,7 +34,7 @@ All persistent state lives under `~/.pi/database/`:
 | Path                        | Format | Owned by                                                                                                      |
 | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
 | `workspace.json`            | JSON   | `WorkspaceContext` — current env/connection/database selection                                                |
-| `history.db`                | SQLite | `QueryHistoryStore` + `FavoriteStore` + `RelationStore` (3 tables, 1 DB, shared handle via `history.getDb()`) |
+| `state.db`                  | SQLite | `QueryHistoryStore` + `FavoriteStore` + `RelationStore` (3 tables, 1 DB, shared handle via `history.getDb()`) |
 | `schema/<connId>/<db>.json` | JSON   | Schema cache — table/column/index snapshots                                                                   |
 
 ### Layer stack (flat)

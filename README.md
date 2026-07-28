@@ -182,7 +182,7 @@ connections:
 | ------------------ | --------------------------------------- |
 | `workspace.json`   | 当前环境/数据库选择                     |
 | `schema/`          | 表结构 JSON 缓存（按连接/数据库分文件） |
-| `history.db`       | 查询历史、收藏、表关系的 SQLite 存储    |
+| `state.db`         | 查询历史、收藏、表关系的 SQLite 存储    |
 | `connections.yaml` | 连接定义                                |
 
 ## 环境要求

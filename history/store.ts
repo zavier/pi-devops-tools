@@ -1,7 +1,7 @@
 /**
  * Query History Store — SQLite-based persistence for /db query history.
  *
- * Database: ~/.pi/database/history.db
+ * Database: ~/.pi/database/state.db
  * Table: query_history
  */
 

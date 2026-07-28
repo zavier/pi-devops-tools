@@ -203,7 +203,7 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 | --------------------------- | ------------ | ------------------------------------------------------------- |
 | `workspace.json`            | JSON         | 当前选择的环境/连接/数据库                                    |
 | `connections.yaml`          | YAML         | 用户配置的数据库连接（支持 `${ENV}` 替换）                    |
-| `history.db`                | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations` |
+| `state.db`                  | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations` |
 | `schema/<connId>/<db>.json` | JSON         | 表/列/索引快照，带 `refreshedAt` 时间戳                       |
 
 ## 四、关键设计决策

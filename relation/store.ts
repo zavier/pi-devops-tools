@@ -1,7 +1,7 @@
 /**
  * Table Relation Store — SQLite-based persistence for table column relationships.
  *
- * Table: table_relations (in the same history.db)
+ * Table: table_relations (in the same state.db)
  */
 
 import Database from "better-sqlite3";
