@@ -45,7 +45,7 @@ export async function handleRelations(
     case "discover":
       return await handleRelationsDiscover(ctx, ws, pi);
     case "er-diagram":
-      return await handleRelationsERDiagram(ctx, ws, rest[1]);
+      return await handleRelationsERDiagram(ctx, ws, pi, rest[1]);
     default:
       return await handleRelationsList(ctx, ws, pi);
   }
@@ -84,8 +84,11 @@ async function handleRelationsList(
   );
 
   if (action === "🗑 删除") {
-    const confirm = await ctx.ui.select(`确认删除这个关系？`, ["取消", "确认删除"]);
-    if (confirm === "确认删除") {
+    const ok = await ctx.ui.confirm(
+      "确认删除",
+      `#${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+    );
+    if (ok) {
       ws.removeRelation(entry.id);
       ctx.ui.notify(
         `已删除关系 #${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
@@ -184,12 +187,12 @@ async function handleRelationsRemove(
   const idx = labels.indexOf(choice);
   const entry = rows[idx];
 
-  const confirm = await ctx.ui.select(
-    `确认删除 "${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}"？`,
-    ["取消", "确认删除"],
+  const ok = await ctx.ui.confirm(
+    "确认删除",
+    `"${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}"？`,
   );
 
-  if (confirm === "确认删除") {
+  if (ok) {
     ws.removeRelation(entry.id);
     ctx.ui.notify(`已删除关系 #${entry.id}`, "info");
   }
@@ -271,7 +274,8 @@ async function handleRelationsDiscover(
             `3. 每对关系推断一个 relationType：MANY_TO_ONE / ONE_TO_MANY / ONE_TO_ONE / MANY_TO_MANY`,
             `4. 如果有分类型关联条件（如 type=1），请标注 condition`,
             ``,
-            `请以 JSON 数组格式输出，每个元素：`,
+            `对每一对确认的关系，调用 db_register_relation 工具保存（参数：table / column / refTable / refColumn / relationType / condition）。`,
+            `如果 db_register_relation 工具不可用，再以 JSON 数组格式输出，每个元素：`,
             `{"table":"源表","column":"源列","refTable":"目标表","refColumn":"目标列","relationType":"MANY_TO_ONE","condition":""}`,
             ``,
             `ER 图：`,
@@ -294,6 +298,7 @@ async function handleRelationsDiscover(
 async function handleRelationsERDiagram(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
   table?: string,
 ): Promise<void> {
   if (!ws.isReady) {
@@ -360,5 +365,15 @@ async function handleRelationsERDiagram(
 
   const erDiagram = lines.join("\n");
 
-  ctx.ui.notify(`═══ ER 图 — ${table} ═══\n\n${erDiagram}`, "info");
+  // display: true → persistent in the chat; the default markdown renderer
+  // shows the mermaid source as a code block and the LLM can read it too.
+  // deliverAs "followUp" commits immediately when the agent is idle.
+  pi.sendMessage(
+    {
+      customType: "db-er-diagram",
+      content: [`## ER 图 — ${table}`, "", "```mermaid", erDiagram, "```"].join("\n"),
+      display: true,
+    },
+    { deliverAs: "followUp", triggerTurn: false },
+  );
 }

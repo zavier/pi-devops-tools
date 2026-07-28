@@ -18,6 +18,7 @@ import type { RelatedResult, SqlRow } from "../types";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
 import { formatTableResult } from "../formatting/result-table";
 import { pickTable } from "./utils";
+import type { QueryResultDetails } from "./renderers";
 
 interface ExecutedResult {
   columns: string[];
@@ -65,22 +66,10 @@ async function displayQueryResult(
   const formattedData = formatTableResult({ columns: result.columns, rows: result.rows });
   const relatedText = related.length > 0 ? formatRelatedResults(related) : "";
 
-  const displayLines = [
-    `═══ 查询 — ${ws.current!.database} ═══`,
-    `SQL：${result.sql}`,
-    `行数：${result.rows.length}（${result.elapsed}）`,
-    "",
-    formattedData,
-  ];
-  if (related.length > 0) {
-    displayLines.push(relatedText, `共查询 ${1 + related.length} 个表`);
-  }
-
-  ctx.ui.notify(displayLines.join("\n"), "info");
-
-  // Send result text to the AI context so the model can reason about the data.
-  // deliverAs: "context" adds it silently without triggering a turn.
-  const contextContent = [
+  // One sendMessage serves both audiences: the custom renderer shows a compact,
+  // persistent view in the TUI, and the same content reaches the LLM context.
+  // deliverAs "nextTurn" queues it silently without triggering a turn.
+  const content = [
     `## 数据库查询结果`,
     ``,
     `**数据库**：${ws.current!.database}`,
@@ -90,14 +79,23 @@ async function displayQueryResult(
     formattedData,
   ];
   if (related.length > 0) {
-    contextContent.push(``, `### 关联表（${related.length} 个）`, ``, relatedText);
+    content.push(``, `### 关联表（${related.length} 个）`, ``, relatedText);
   }
 
   pi.sendMessage(
     {
       customType: "db-query-result",
-      content: contextContent.join("\n"),
-      display: false,
+      content: content.join("\n"),
+      display: true,
+      details: {
+        database: ws.current!.database,
+        sql: result.sql,
+        rowCount: result.rows.length,
+        elapsed: result.elapsed,
+        mainTable: formattedData,
+        relatedText,
+        relatedCount: related.length,
+      } satisfies QueryResultDetails,
     },
     { deliverAs: "followUp", triggerTurn: false },
   );
@@ -175,7 +173,7 @@ async function queryRaw(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
 ): Promise<void> {
-  const sql = await ctx.ui.input("SQL", "SELECT * FROM ... LIMIT 10");
+  const sql = await ctx.ui.editor("SQL（只读查询，支持多行）", "");
   if (!sql || !sql.trim()) return;
 
   // No pre-validation — the executor enforces the read-only guard.

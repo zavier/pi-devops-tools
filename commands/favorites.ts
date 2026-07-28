@@ -81,7 +81,7 @@ async function handleFavoriteAdd(
   }
 
   if (!sql) {
-    sql = await ctx.ui.input("SQL 模板", ws.lastSql ?? "SELECT * FROM ...");
+    sql = await ctx.ui.editor("SQL 模板（支持多行）", ws.lastSql ?? "SELECT * FROM ... LIMIT 10");
     if (!sql || !sql.trim()) return;
     sql = sql.trim();
   }
@@ -132,14 +132,13 @@ async function handleFavoriteList(
   if (action === "▶ 直接执行") {
     await executeAndDisplay(ctx, ws, pi, entry.sql);
   } else if (action === "✏️ 编辑后执行") {
-    ctx.ui.notify(`原始 SQL：\n${entry.sql}`, "info");
-    const editedSql = await ctx.ui.input("编辑 SQL（对照上方原文修改）");
+    const editedSql = await ctx.ui.editor("编辑 SQL", entry.sql);
     if (!editedSql || !editedSql.trim()) return;
     // No pre-validation — the executor enforces the read-only guard.
     await executeAndDisplay(ctx, ws, pi, editedSql.trim());
   } else if (action === "🗑 删除") {
-    const confirm = await ctx.ui.select(`确认删除 "${entry.name}"？`, ["取消", "确认删除"]);
-    if (confirm === "确认删除") {
+    const ok = await ctx.ui.confirm("确认删除", `删除收藏 "${entry.name}"？`);
+    if (ok) {
       ws.deleteFavorite(entry.id);
       ctx.ui.notify(`已删除收藏 #${entry.id} "${entry.name}"`, "info");
     }

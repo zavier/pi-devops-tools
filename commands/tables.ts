@@ -2,12 +2,13 @@
  * /db tables — list all tables in the current database.
  */
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 
 export async function handleTables(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
 ): Promise<void> {
   if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
@@ -27,13 +28,14 @@ export async function handleTables(
     return;
   }
 
-  const text = [
-    `═══ 表 — ${ws.current!.database} ═══`,
+  const content = [
+    `### 表 — ${ws.current!.database}（${tables.length}）`,
     "",
-    ...tables.map((t, i) => `  ${i + 1}. ${t}`),
-    "",
-    `${tables.length} 个表`,
+    ...tables.map((t) => `- ${t}`),
   ].join("\n");
 
-  ctx.ui.notify(text, "info");
+  pi.sendMessage(
+    { customType: "db-tables", content, display: true },
+    { deliverAs: "followUp", triggerTurn: false },
+  );
 }

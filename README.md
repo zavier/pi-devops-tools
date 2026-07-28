@@ -81,10 +81,19 @@ connections:
 
 ### `/db`
 
-显示工作区面板，查看当前连接状态和可用子命令。
+显示工作区面板，查看当前连接状态、可用连接和子命令。
 
 ```
 /db
+```
+
+### `/db add`
+
+交互式 wizard 添加新数据库连接：选择环境 → 连接名 → host/port → 用户名/密码 → 默认数据库。
+写入 `connections.yaml` 后自动 hot-reload，无需重启。
+
+```
+/db add
 ```
 
 ### `/db switch`
@@ -105,7 +114,7 @@ connections:
 
 ### `/db schema [表名]`
 
-查看表结构（列、索引）。不带参数时显示可搜索的表列表。
+查看表结构（列、索引）。结果以 markdown 表格形式渲染并持久展示在聊天中。不带参数时显示可搜索的表列表。
 
 ```
 /db schema users
@@ -164,7 +173,7 @@ connections:
 /db relations er-diagram [表名]   → 以该表为中心生成 mermaid ER 图
 ```
 
-注册关系后，`/db query` 的 auto-join 模式会通过 BFS 自动联表查询关联数据。
+注册关系后，AI 会通过 `db_register_relation` 工具辅助完成 discover → 分析 → 注册的工作流。
 
 ### `/db refresh-schema`
 
@@ -174,6 +183,19 @@ connections:
 /db refresh-schema
 ```
 
+## LLM 工具
+
+扩展注册了 4 个只读工具，AI 可以直接调用而无需用户输入 `/db` 命令：
+
+| 工具名                 | 描述                                               |
+| ---------------------- | -------------------------------------------------- |
+| `db_query`             | 执行只读 SQL 查询（与 `/db query` 相同的安全限制） |
+| `db_list_tables`       | 列出当前数据库的所有表                             |
+| `db_table_schema`      | 查看指定表的结构（列、索引）                       |
+| `db_register_relation` | 注册表关联关系（discover → AI 分析 → 注册闭环）    |
+
+AI 调用这些工具时遵循与用户命令相同的只读保护：只能执行 SELECT/SHOW/DESCRIBE/EXPLAIN，DELETE/DROP/UPDATE 等写操作会被拒绝。查询结果以折叠表格形式渲染，支持关联表展开。
+
 ## 数据存储
 
 所有状态存储在 `~/.pi/database/` 下：
@@ -182,7 +204,7 @@ connections:
 | ------------------ | --------------------------------------- |
 | `workspace.json`   | 当前环境/数据库选择                     |
 | `schema/`          | 表结构 JSON 缓存（按连接/数据库分文件） |
-| `history.db`       | 查询历史、收藏、表关系的 SQLite 存储    |
+| `state.db`         | 查询历史、收藏、表关系的 SQLite 存储    |
 | `connections.yaml` | 连接定义                                |
 
 ## 环境要求
