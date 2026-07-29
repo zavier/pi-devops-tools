@@ -12,6 +12,23 @@
 
 import { matchesKey, Key } from "@earendil-works/pi-tui";
 
+// ── Bracketed paste ─────────────────────────────────────────────
+//
+// pi enables bracketed paste mode in the terminal. When the user
+// pastes, the terminal wraps the content in these escape sequences.
+// We extract the payload and feed each printable char to the reducer.
+
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+
+/** Extract pasted payload from bracketed-paste escape sequence. */
+function extractPaste(data: string): string | null {
+  if (!data.includes(PASTE_START)) return null;
+  const startIdx = data.indexOf(PASTE_START) + PASTE_START.length;
+  const endIdx = data.lastIndexOf(PASTE_END);
+  return endIdx > startIdx ? data.slice(startIdx, endIdx) : data.slice(startIdx);
+}
+
 // ── Filter reducer (for fuzzy table picker) ─────────────────────
 
 export interface FilterResult {
@@ -37,6 +54,16 @@ export function createFilterReducer(): {
     // be misclassified as printable.
     if (matchesKey(data, Key.backspace) || matchesKey(data, Key.delete)) {
       filterText = filterText.slice(0, -1);
+      return { filterText, action: "filter" };
+    }
+
+    // Bracketed paste — extract payload and append all printable chars.
+    // pi wraps pasted content in \x1b[200~ ... \x1b[201~.
+    const pasted = extractPaste(data);
+    if (pasted !== null) {
+      for (const ch of pasted) {
+        if (ch.charCodeAt(0) >= 32) filterText += ch;
+      }
       return { filterText, action: "filter" };
     }
 
@@ -84,6 +111,15 @@ export function createPasswordReducer(): {
 
     if (matchesKey(data, Key.backspace)) {
       password = password.slice(0, -1);
+      return { password, action: "update" };
+    }
+
+    // Bracketed paste — extract payload and append all printable chars.
+    const pasted = extractPaste(data);
+    if (pasted !== null) {
+      for (const ch of pasted) {
+        if (ch.charCodeAt(0) >= 32) password += ch;
+      }
       return { password, action: "update" };
     }
 

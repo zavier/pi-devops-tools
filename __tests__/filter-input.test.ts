@@ -146,6 +146,36 @@ describe("createFilterReducer", () => {
     handleKey("\x7f");
     expect(getFilterText()).toBe("he");
   });
+
+  describe("bracketed paste", () => {
+    it("extracts and appends pasted content", () => {
+      const { handleKey, getFilterText } = createFilterReducer();
+      // pi wraps paste in \x1b[200~ ... \x1b[201~
+      handleKey("\x1b[200~user\x1b[201~");
+      expect(getFilterText()).toBe("user");
+    });
+
+    it("filters out non-printable chars from paste", () => {
+      const { handleKey, getFilterText } = createFilterReducer();
+      // Tab and newline in pasted content are stripped
+      handleKey("\x1b[200~a\tb\nc\x1b[201~");
+      expect(getFilterText()).toBe("abc");
+    });
+
+    it("appends paste to existing filter text", () => {
+      const { handleKey, getFilterText } = createFilterReducer();
+      handleKey("h");
+      handleKey("e");
+      handleKey("\x1b[200~llo\x1b[201~");
+      expect(getFilterText()).toBe("hello");
+    });
+
+    it("handles CJK paste content", () => {
+      const { handleKey, getFilterText } = createFilterReducer();
+      handleKey("\x1b[200~用户\x1b[201~");
+      expect(getFilterText()).toBe("用户");
+    });
+  });
 });
 
 // ── Password reducer ────────────────────────────────────────────
@@ -206,5 +236,28 @@ describe("createPasswordReducer", () => {
     const result = handleKey("\r");
     expect(result.action).toBe("submit");
     expect(result.password).toBe("");
+  });
+
+  describe("bracketed paste", () => {
+    it("extracts and appends pasted password content", () => {
+      const { handleKey, getPassword } = createPasswordReducer();
+      handleKey("\x1b[200~MyP@ssw0rd!\x1b[201~");
+      expect(getPassword()).toBe("MyP@ssw0rd!");
+    });
+
+    it("treats paste as update action", () => {
+      const { handleKey } = createPasswordReducer();
+      const result = handleKey("\x1b[200~abc\x1b[201~");
+      expect(result.action).toBe("update");
+    });
+
+    it("appends paste after manual typing", () => {
+      const { handleKey, getPassword } = createPasswordReducer();
+      handleKey("$");
+      handleKey("{");
+      handleKey("\x1b[200~DB_PASS\x1b[201~");
+      handleKey("}");
+      expect(getPassword()).toBe("${DB_PASS}");
+    });
   });
 });
