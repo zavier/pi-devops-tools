@@ -8,7 +8,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { SqlRow } from "../types";
 import type { RelationRow } from "../relation/store";
-import { pickTable } from "./utils";
+import { pickTableFuzzy, withLoader } from "./utils";
 
 // ── List formatting ─────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ async function handleRelationsAdd(
     return;
   }
 
-  const srcTable = await pickTable(ctx, ws, "选择源表");
+  const srcTable = await pickTableFuzzy(ctx, ws, "选择源表");
   if (!srcTable) return;
 
   let srcColumns: string[] = [];
@@ -125,7 +125,7 @@ async function handleRelationsAdd(
   const srcCol = await ctx.ui.select("选择源表列", srcColumns);
   if (!srcCol) return;
 
-  const refTable = await pickTable(ctx, ws, "选择关联表");
+  const refTable = await pickTableFuzzy(ctx, ws, "选择关联表");
   if (!refTable) return;
 
   let refColumns: string[] = [];
@@ -213,11 +213,13 @@ async function handleRelationsDiscover(
   const schema = ws.current!.database;
 
   let fkCount = 0;
-  try {
-    fkCount = await ws.discoverForeignKeys();
-  } catch (err: any) {
-    ctx.ui.notify(`外键同步失败：${err.message}`, "warning");
-  }
+  const fkResult = await withLoader(
+    ctx,
+    "同步外键关系…",
+    (_signal) => ws.discoverForeignKeys(),
+    (err) => ctx.ui.notify(`外键同步失败：${err.message}`, "warning"),
+  );
+  if (fkResult !== undefined) fkCount = fkResult;
 
   const parts: string[] = [];
   if (fkCount > 0) parts.push(`发现 ${fkCount} 个外键关系，已自动保存`);
@@ -307,7 +309,7 @@ async function handleRelationsERDiagram(
   }
 
   if (!table) {
-    const picked = await pickTable(ctx, ws, "选择表");
+    const picked = await pickTableFuzzy(ctx, ws, "选择表");
     if (!picked) return;
     table = picked;
   }

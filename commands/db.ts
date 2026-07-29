@@ -4,9 +4,15 @@
  * Thin router: delegates to per-subcommand handler modules.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import { STATUS_KEY, showWorkspacePanel, handleSwitch } from "./switch";
+import { STATUS_KEY, handleSwitch } from "./switch";
 import { handleAdd } from "./add";
 import { handleTables } from "./tables";
 import { handleSchema } from "./schema";
@@ -58,9 +64,14 @@ export function registerDbCommand(
       const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean);
 
       switch (sub) {
-        case undefined:
-          await showWorkspacePanel(ctx, ws, pi);
+        case undefined: {
+          // Send silent LLM context before showing interactive dashboard
+          sendLLMContext(ws, pi);
+          const action = await showDashboard(ctx, ws);
+          if (!action) return;
+          await dispatchAction(action, ctx, ws, pi, rest);
           break;
+        }
         case "switch":
           await handleSwitch(ctx, ws, pi);
           break;
@@ -77,7 +88,7 @@ export function registerDbCommand(
           await handleQuery(ctx, ws, pi, rest.join(" ") || undefined);
           break;
         case "history":
-          await handleHistory(ctx, ws, rest[0]);
+          await handleHistory(ctx, ws, pi, rest[0]);
           break;
         case "favorite":
           await handleFavorite(ctx, ws, pi, rest);
@@ -159,6 +170,179 @@ async function getCompletions(
   return null;
 }
 
+// ====== Dashboard ================================================
+
+interface DashboardAction {
+  value: string;
+  label: string;
+  /** Whether this action requires a connected DB */
+  needsConnection?: boolean;
+}
+
+const DASHBOARD_ACTIONS: DashboardAction[] = [
+  { value: "switch", label: "🔄 切换环境/数据库", needsConnection: false },
+  { value: "add", label: "➕ 添加新连接", needsConnection: false },
+  { value: "tables", label: "📋 浏览数据表", needsConnection: true },
+  { value: "schema", label: "🔍 查看表结构", needsConnection: true },
+  { value: "query", label: "💬 SQL 查询", needsConnection: true },
+  { value: "history", label: "📜 查询历史", needsConnection: true },
+  { value: "favorite", label: "⭐ 收藏查询", needsConnection: true },
+  { value: "relations", label: "🔗 表关联关系", needsConnection: true },
+  { value: "refresh-schema", label: "🔄 刷新表结构缓存", needsConnection: true },
+];
+
+/** Send a silent context message so the LLM knows the DB state. */
+function sendLLMContext(ws: DatabaseWorkspaceService, pi: ExtensionAPI): void {
+  if (ws.isReady) {
+    pi.sendMessage(
+      {
+        customType: "db-active-db",
+        content: `Current database: ${ws.current!.database} (connection: ${ws.current!.connectionId}, environment: ${ws.current!.environment}). Config file: ${ws.configPath}.`,
+        display: false,
+      },
+      { deliverAs: "followUp", triggerTurn: false },
+    );
+  } else if (ws.isConfigured) {
+    pi.sendMessage(
+      {
+        customType: "db-hint",
+        content: `Database connections are configured but no database is selected. Tell the user to run /db switch to connect. Config file: ${ws.configPath}.`,
+        display: false,
+      },
+      { deliverAs: "followUp", triggerTurn: false },
+    );
+  }
+}
+
+/** Build the interactive dashboard component. */
+async function showDashboard(
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+): Promise<string | undefined> {
+  // Build status lines
+  let statusLines: string[] = [];
+  if (ws.current) {
+    const conn = ws.getCurrentConnection();
+    const cache = ws.autoLoadSchema();
+    statusLines = [
+      `📡 环境：${ws.current.environment}`,
+      `⚡ 连接：${ws.current.connectionId}（${conn?.host ?? "?"}）`,
+      `🗃️  数据库：${ws.current.database}`,
+      cache ? `📦 缓存：${cache.tables.length} 个表` : "📦 缓存：无",
+    ];
+  } else if (ws.isConfigured) {
+    const envs = ws.getEnvironments();
+    statusLines = [`⚡ 可用环境：${envs.join(", ")}`];
+  } else {
+    statusLines = ["⚠️  尚未配置数据库连接", `配置文件：${ws.configPath}`];
+  }
+
+  // Build action items — disable connection-required actions when not connected
+  const items: SelectItem[] = DASHBOARD_ACTIONS.map((a) => ({
+    value: a.value,
+    label: a.label,
+    description: a.needsConnection && !ws.isReady ? "（需要先连接数据库）" : undefined,
+  }));
+
+  // Warnings
+  const warnings = ws.getConfigWarnings();
+  const showWarnings = warnings.length > 0;
+
+  return ctx.ui.custom<string | undefined>((tui, theme, _kb, done) => {
+    const container = new Container();
+
+    // Top border
+    container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
+
+    // Header
+    container.addChild(new Text(theme.fg("accent", theme.bold("🗄 数据库工作区")), 1, 0));
+
+    // Status
+    for (const line of statusLines) {
+      container.addChild(new Text(theme.fg("dim", `  ${line}`), 1, 0));
+    }
+
+    // Warnings
+    if (showWarnings) {
+      for (const w of warnings) {
+        container.addChild(new Text(theme.fg("warning", `  ⚠ ${w}`), 1, 0));
+      }
+    }
+
+    // Separator
+    container.addChild(new Text(theme.fg("dim", "  ─── 操作 ─────────────────"), 1, 0));
+
+    // Action list
+    const selectList = new SelectList(items, Math.min(items.length, 12), {
+      selectedPrefix: (t) => theme.fg("accent", t),
+      selectedText: (t) => theme.fg("accent", t),
+      description: (t) => theme.fg("muted", t),
+      scrollInfo: (t) => theme.fg("dim", t),
+      noMatch: (t) => theme.fg("warning", t),
+    });
+    selectList.onSelect = (item) => {
+      const action = DASHBOARD_ACTIONS.find((a) => a.value === item.value);
+      if (action?.needsConnection && !ws.isReady) {
+        return;
+      }
+      done(item.value);
+    };
+    selectList.onCancel = () => done(void 0);
+    container.addChild(selectList);
+
+    // Bottom border
+    container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
+
+    return {
+      render: (w) => container.render(w),
+      invalidate: () => container.invalidate(),
+      handleInput: (data) => {
+        selectList.handleInput(data);
+        tui.requestRender();
+      },
+    };
+  });
+}
+
+/** Route a dashboard action to the correct handler. */
+async function dispatchAction(
+  action: string,
+  ctx: ExtensionCommandContext,
+  ws: DatabaseWorkspaceService,
+  pi: ExtensionAPI,
+  rest: string[],
+): Promise<void> {
+  switch (action) {
+    case "switch":
+      await handleSwitch(ctx, ws, pi);
+      break;
+    case "add":
+      await handleAdd(ctx, ws);
+      break;
+    case "tables":
+      await handleTables(ctx, ws, pi);
+      break;
+    case "schema":
+      await handleSchema(ctx, ws, pi, rest[0]);
+      break;
+    case "query":
+      await handleQuery(ctx, ws, pi, rest.join(" ") || undefined);
+      break;
+    case "history":
+      await handleHistory(ctx, ws, pi, rest[0]);
+      break;
+    case "favorite":
+      await handleFavorite(ctx, ws, pi, rest);
+      break;
+    case "relations":
+      await handleRelations(ctx, ws, pi, rest);
+      break;
+    case "refresh-schema":
+      await handleRefreshSchema(ctx, ws);
+      break;
+  }
+}
+
 // ====== Status bar helpers ======
 
 /** Restore status bar on session start. */
@@ -166,8 +350,7 @@ export function restoreStatusBar(ws: DatabaseWorkspaceService, ctx: ExtensionCon
   if (ws.isReady) {
     ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
     ctx.ui.setWidget(STATUS_KEY, [
-      `🗄 DB：${ws.current!.environment}/${ws.current!.database}`,
-      `连接：${ws.current!.connectionId}`,
+      `🗄 ${ws.current!.environment}/${ws.current!.database}  @${ws.current!.connectionId}`,
     ]);
   }
 }

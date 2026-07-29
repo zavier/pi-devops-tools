@@ -10,6 +10,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 export interface QueryResultDetails {
@@ -31,6 +32,10 @@ export function registerRenderers(pi: ExtensionAPI): void {
       const d = message.details;
       if (!d) return undefined; // fall back to default rendering
 
+      // TUI display caps (matching formatTableResult limits:
+      // horizontal ≤8 cols → 20, transposed → 10, vertical → 5)
+      const DISPLAY_CAP = 20;
+
       const lines = [
         theme.fg("accent", theme.bold(`🗄 查询 — ${d.database}`)) +
           theme.fg("dim", `  ${d.rowCount} 行 (${d.elapsed})`),
@@ -39,11 +44,21 @@ export function registerRenderers(pi: ExtensionAPI): void {
         d.mainTable,
       ];
 
+      // Hint when rows exceed the most generous TUI display cap
+      if (d.rowCount > DISPLAY_CAP) {
+        const hint = theme.fg(
+          "dim",
+          `… TUI 仅展示部分行（LLM 可读全部 ${d.rowCount} 行；手动加 LIMIT/OFFSET 翻页）`,
+        );
+        lines.push("", hint);
+      }
+
       if (d.relatedCount > 0) {
         if (expanded && d.relatedText) {
           lines.push("", d.relatedText);
         } else {
-          lines.push("", theme.fg("dim", `… ${d.relatedCount} 个关联表（展开查看）`));
+          const hint = rawKeyHint("ctrl+o", "展开查看");
+          lines.push("", theme.fg("dim", `… ${d.relatedCount} 个关联表（${hint}）`));
         }
       }
 

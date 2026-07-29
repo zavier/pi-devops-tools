@@ -6,7 +6,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { SqlRow } from "../types";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
-import { pickTable } from "./utils";
+import { pickTableFuzzy } from "./utils";
 
 export async function handleSchema(
   ctx: ExtensionCommandContext,
@@ -20,7 +20,7 @@ export async function handleSchema(
   }
 
   if (!table) {
-    const picked = await pickTable(ctx, ws, "选择表");
+    const picked = await pickTableFuzzy(ctx, ws, "选择表");
     if (!picked) return;
     table = picked;
   }

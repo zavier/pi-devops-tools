@@ -372,6 +372,14 @@ export class DatabaseWorkspaceService {
     return this.history.list(filter);
   }
 
+  getHistoryById(id: number): HistoryEntry | undefined {
+    return this.history.getById(id);
+  }
+
+  deleteHistory(id: number): boolean {
+    return this.history.delete(id);
+  }
+
   // ── Favorites ──────────────────────────────────────────────────
 
   saveFavorite(name: string, sql: string, description?: string): FavoriteEntry {

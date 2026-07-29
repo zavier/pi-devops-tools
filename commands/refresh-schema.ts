@@ -4,7 +4,7 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import type { SchemaSnapshot } from "../schema/cache";
+import { withLoader } from "./utils";
 
 export async function handleRefreshSchema(
   ctx: ExtensionCommandContext,
@@ -15,15 +15,8 @@ export async function handleRefreshSchema(
     return;
   }
 
-  ctx.ui.notify("正在刷新表结构缓存...", "info");
-
-  let snapshot: SchemaSnapshot;
-  try {
-    snapshot = await ws.refreshSchema();
-  } catch (err: any) {
-    ctx.ui.notify(`刷新表结构失败：${err.message}`, "error");
-    return;
-  }
+  const snapshot = await withLoader(ctx, "刷新表结构缓存…", (_signal) => ws.refreshSchema());
+  if (!snapshot) return;
 
   ctx.ui.notify(`已缓存 ${snapshot.tables.length} 个表结构（${ws.current!.database}）`, "info");
 }

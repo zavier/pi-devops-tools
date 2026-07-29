@@ -13,11 +13,12 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { SelectItem } from "@earendil-works/pi-tui";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { RelatedResult, SqlRow } from "../types";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
 import { formatTableResult } from "../formatting/result-table";
-import { pickTable } from "./utils";
+import { pickTableFuzzy, withLoader } from "./utils";
 import type { QueryResultDetails } from "./renderers";
 
 interface ExecutedResult {
@@ -109,13 +110,13 @@ export async function executeAndDisplay(
   pi: ExtensionAPI,
   sql: string,
 ): Promise<void> {
-  let result: ExecutedResult;
-  try {
-    result = await ws.executeQuery(sql);
-  } catch (err: any) {
-    ctx.ui.notify(`查询出错：${err.message}`, "error");
-    return;
-  }
+  const result = await withLoader(
+    ctx,
+    "执行查询…",
+    (_signal) => ws.executeQuery(sql),
+    (err) => ctx.ui.notify(`查询出错：${err.message}`, "error"),
+  );
+  if (!result) return;
 
   await displayQueryResult(ctx, ws, pi, result);
 }
@@ -128,7 +129,7 @@ async function queryByTable(
   pi: ExtensionAPI,
   preSelectedTable?: string,
 ): Promise<void> {
-  const table = preSelectedTable ?? (await pickTable(ctx, ws, "选择数据表"));
+  const table = preSelectedTable ?? (await pickTableFuzzy(ctx, ws, "选择数据表"));
   if (!table) return;
 
   const where = await ctx.ui.input(`WHERE 条件（可选，回车跳过）`, "");
@@ -210,12 +211,13 @@ export async function handleQuery(
     return;
   }
 
-  const mode = await ctx.ui.select("查询方式", ["📋 选择数据表", "✏️ 输入 SQL"]);
-  if (!mode) return;
+  // Unified picker: tables + SQL entry as first option
+  const sqlEntry: SelectItem = { value: "__sql__", label: "✏️ 直接输入 SQL…" };
+  const choice = await pickTableFuzzy(ctx, ws, "选择数据表 或 直接输入 SQL", [sqlEntry]);
+  if (!choice) return;
 
-  if (mode.startsWith("📋")) {
-    return await queryByTable(ctx, ws, pi);
-  } else {
+  if (choice === "__sql__") {
     return await queryRaw(ctx, ws, pi);
   }
+  return await queryByTable(ctx, ws, pi, choice);
 }

@@ -4,6 +4,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
+import { withLoader } from "./utils";
 
 export const STATUS_KEY = "db-workspace";
 
@@ -140,19 +141,27 @@ export async function handleSwitch(
   const conn = ws.getConnectionConfig(connectionId);
   const defaultDb = conn?.defaultDatabase;
 
-  let database: string;
+  let database: string | undefined;
 
-  if (defaultDb && !ws.current) {
-    database = defaultDb;
-  } else {
-    ctx.ui.notify("加载数据库列表...", "info");
-    let databases: string[];
-    try {
-      databases = await ws.getDatabases(connectionId);
-    } catch (err: any) {
-      ctx.ui.notify(`连接失败：${err.message}`, "error");
-      return;
+  if (defaultDb) {
+    const useDefault = await ctx.ui.confirm(
+      "默认数据库",
+      `连接 "${connectionId}" 配置了默认数据库 "${defaultDb}"。\n\n是否直接使用？\n选"否"则手动选择其他数据库。`,
+    );
+    if (useDefault === undefined) return; // Esc
+    if (useDefault) {
+      database = defaultDb;
     }
+  }
+
+  if (!database) {
+    const databases = await withLoader(
+      ctx,
+      "加载数据库列表…",
+      (_signal) => ws.getDatabases(connectionId),
+      (err) => ctx.ui.notify(`连接失败：${err.message}`, "error"),
+    );
+    if (!databases) return;
 
     if (databases.length === 0) {
       ctx.ui.notify(`${connectionId} 上没有找到数据库`, "warning");
@@ -168,7 +177,7 @@ export async function handleSwitch(
   ws.switchTo(env, connectionId, database);
 
   ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
-  ctx.ui.setWidget(STATUS_KEY, [`🗄 DB: ${env}/${database}`, `连接: ${connectionId}`]);
+  ctx.ui.setWidget(STATUS_KEY, [`🗄 ${env}/${database}  @${connectionId}`]);
 
   // Tell the LLM which database is active so it doesn't have to guess.
   // display: false avoids cluttering the chat with a redundant message.
