@@ -71,8 +71,12 @@ class DatabaseWorkspaceService {
   switchTo(env, connId, db): void;
 
   // ── 数据查询 ──
-  async executeQuery(sql): Promise<QueryResult>;
+  async executeQuery(sql, opts?): Promise<QueryResult>;
   async executeQueryWithRelations(sql, table, autoJoin): Promise<...>;
+
+  // ── 数据修改（人工确认门控）──
+  async executeMutation(sql, opts?): Promise<MutationResult>;
+  resolveTarget(opts?): QueryTarget;
 
   // ── 目标解析（跨库/跨连接）──
   resolveTarget(opts?): QueryTarget;  // 默认当前选择，可按调用覆盖
@@ -95,7 +99,7 @@ class DatabaseWorkspaceService {
 
 ### 3.2 连接管理 — DatabaseConnectionManager
 
-**一句话**：所有 SQL 查询的唯一执行入口，保证安全策略和连接复用。
+**一句话**：所有 SQL 执行的入口 — 读查询走 `executeQuery`（只读守卫 + LIMIT），写操作走 `executeMutation`（DML 校验 + 人工确认门控），两者共享连接池。
 
 ```
 executeQuery(connId, db, sql)
@@ -119,6 +123,8 @@ executeQuery(connId, db, sql)
 | ---------------------------------- | --------------------------------------------- |
 | `READONLY_SQL_RE`                  | 正则匹配 SELECT / SHOW / DESCRIBE / EXPLAIN   |
 | `prepareReadOnlyQuery(sql, limit)` | 校验只读 → 未限定的 SELECT 自动追加 `LIMIT n` |
+| `MUTATION_SQL_RE`                  | 正则匹配 INSERT / UPDATE / DELETE / REPLACE   |
+| `prepareMutationQuery(sql)`        | 校验 DML → 返回操作类型/WHERE 检查/警告       |
 
 **LIMIT 追加规则**：
 
@@ -181,19 +187,42 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 - 参数化查询 — `IN (?)` + mysql2 数组展开，无 SQL 注入风险
 - `null` 值跳过 — 外键为 NULL 的行不触发关联查询
 
-### 3.6 结果格式化 — formatTableResult
+### 3.6 结果格式化
 
-自动选择最优布局：
+纯函数模块 `formatting/result-table.ts`，导出四个主要入口：
+
+| 函数                 | 受众 | 说明                                                                                      |
+| -------------------- | ---- | ----------------------------------------------------------------------------------------- |
+| `formatTableDisplay` | TUI  | 自适应终端宽度 — 先尝试水平表格（`layoutColumns` 列宽打包），放不下则转置，再多行用垂直。 |
+| `formatTableCompact` | LLM  | 无填充紧凑格式，200 字符截断带 `…[+N]` 标记，全部行。                                     |
+| `formatVerticalFull` | TUI  | 展开模式完整键值对，不截断。                                                              |
+| `formatTableResult`  | 兼容 | `formatTableDisplay(120)` 的别名，向后兼容。                                              |
+
+列分析（`analyzeColumns`）在格式化前运行，自动折叠全 NULL 列和值完全相同列，在底部注释汇总（`ⓘ 已隐藏 N 列`）。
+
+### 3.7 数据修改工具 — db_mutate
+
+`db_mutate` 是唯一的写路径，设计原则是「AI 提议，人类批准」：
 
 ```
-≤ 8 列  →  水平 Markdown 表格
-> 8 列 & ≤ 10 行 → 转置（行列互换）
-> 8 列 & > 10 行 → 垂直键值对（每行一组）
+LLM 调用 db_mutate({ sql, connection?, database? })
+  │
+  ├─ 1. prepareMutationQuery(sql)     ← DML 校验（DDL 直接拒绝）
+  ├─ 2. resolveTarget(opts)           ← 目标解析
+  ├─ 3. showMutationConfirm()         ← TUI overlay 弹窗
+  │     ├─ Enter → 确认
+  │     └─ Esc  → 取消（返回给 LLM）
+  └─ 4. manager.executeMutation()     ← 执行，返回 affectedRows
 ```
 
-列分析（`analyzeColumns`）在格式化前运行，自动折叠全 NULL 列和值完全相同列，在底部注释汇总。
+**安全边界**：
 
-### 3.7 持久化存储
+- DDL（CREATE/DROP/ALTER/TRUNCATE）硬性拒绝，不弹窗
+- UPDATE/DELETE 无 WHERE 时弹窗显示醒目警告，但不阻止执行
+- 每次调用独立确认，无缓存/跳过机制
+- `mutate-confirm.ts` 组件用颜色区分操作类型：INSERT=绿、UPDATE=黄、DELETE=红
+
+### 3.8 持久化存储
 
 所有数据在 `~/.pi/database/` 下：
 
@@ -262,10 +291,9 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
    └─ conn.query(finalSql)
         │
 4. query.ts: displayQueryResult()
-   ├─ formatTableResult()           ← 格式化
    ├─ ws.saveHistory()              ← 记录历史
-   ├─ ctx.ui.notify()               ← 展示给用户
-   └─ pi.sendMessage()              ← 发送 db-query-result 给 pi
+   ├─ pi.appendEntry()              ← TUI 自适应宽度表格（EntryRenderer）
+   └─ pi.sendMessage({display:false}) ← LLM 上下文紧凑表格
 ```
 
 ### 5.2 关系注册
@@ -285,6 +313,28 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
 3. relation-graph.ts: register()
    ├─ store.insert()                ← 持久化到 SQLite
    └─ addToForward(source, target)  ← 更新内存图（正反双向）
+```
+
+### 5.3 数据修改 `/db mutate`（LLM 工具）
+
+```
+1. tools/db-tools.ts: db_mutate.execute()
+   ├─ prepareMutationQuery(sql)       ← DML 校验
+   ├─ ws.resolveTarget(opts)          ← 目标解析
+   └─ showMutationConfirm(ctx, ...)   ← TUI overlay 确认
+        │
+        ├─ 用户按 Esc → 返回 rejected 给 LLM
+        │
+        └─ 用户按 Enter ↓
+              │
+2. workspace.ts: executeMutation()
+   └─ manager.executeMutation(connId, db, sql)
+        │
+3. db-manager.ts: executeMutation()
+   ├─ pool.getConnection()
+   ├─ USE `database`
+   ├─ conn.query(sql)                ← ResultSetHeader
+   └─ conn.release()
 ```
 
 ## 六、扩展点

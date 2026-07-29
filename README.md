@@ -6,10 +6,12 @@
 
 - **`/db` 命令** — 交互式数据库工作区，支持多个子命令
 - **SQL 查询** — 只读查询（SELECT、SHOW、DESCRIBE、EXPLAIN），结果自动格式化；无 LIMIT 的 SELECT 自动封顶（默认 100，可按连接配置）
-- **表结构缓存** — 本地缓存表结构，秒出结果
+- **AI 写操作** — `db_mutate` 工具支持 INSERT/UPDATE/DELETE/REPLACE，每次需人工在 TUI 弹窗中确认
+- **实时表结构** — 直接查询 `information_schema`，始终最新
 - **查询历史** — 所有查询本地记录，支持关键词搜索
 - **收藏查询** — 保存常用 SQL 模板，一键执行
 - **表关系图** — 注册外键关系，BFS 自动联表查询
+- **跨库查询** — 同一 MySQL 实例上的库可直接 `db.table` JOIN，无需切换
 - **状态栏** — 在 pi 底部状态栏显示当前数据库上下文
 - **状态持久化** — 工作区状态跨会话保持
 
@@ -132,11 +134,7 @@ connections:
 
 参数是表名还是 SQL 由框架自动判断 — 命中已知表名走选表模式，以 `SELECT`/`SHOW`/`DESCRIBE`/`EXPLAIN` 开头则直接执行。
 
-结果自动选择最佳展示格式：
-
-- ≤ 8 列 → 横向表格
-- > 8 列且 ≤ 10 行 → 行列转置视图
-- 其他 → 每行垂直键值对展示
+结果根据终端宽度自适应选择最佳展示格式（水平表格 → 转置 → 垂直键值对），`ctrl+o` 可展开查看全部行。
 
 全 NULL 列、值全相同的列会被折叠并给出摘要提示。
 
@@ -175,37 +173,33 @@ connections:
 
 注册关系后，AI 会通过 `db_register_relation` 工具辅助完成 discover → 分析 → 注册的工作流。
 
-### `/db refresh-schema`
-
-从数据库刷新本地表结构缓存。
-
-```
-/db refresh-schema
-```
-
 ## LLM 工具
 
-扩展注册了 4 个只读工具，AI 可以直接调用而无需用户输入 `/db` 命令：
+扩展注册了 7 个工具（6 个只读 + 1 个写操作），AI 可以直接调用而无需用户输入 `/db` 命令：
 
-| 工具名                 | 描述                                               |
-| ---------------------- | -------------------------------------------------- |
-| `db_query`             | 执行只读 SQL 查询（与 `/db query` 相同的安全限制） |
-| `db_list_tables`       | 列出当前数据库的所有表                             |
-| `db_table_schema`      | 查看指定表的结构（列、索引）                       |
-| `db_register_relation` | 注册表关联关系（discover → AI 分析 → 注册闭环）    |
+| 工具名                 | 类型   | 描述                                                          |
+| ---------------------- | ------ | ------------------------------------------------------------- |
+| `db_query`             | 只读   | 执行只读 SQL 查询（与 `/db query` 相同的安全限制）            |
+| `db_list_databases`    | 只读   | 列出已配置的连接及数据库 — 用于发现可用的连接/库名            |
+| `db_list_tables`       | 只读   | 列出指定数据库的所有表（实时查询）                            |
+| `db_table_schema`      | 只读   | 查看指定表的结构（列、索引）                                  |
+| `db_list_relations`    | 只读   | 列出已注册的表关系 — AI 可用于自行编写 JOIN                   |
+| `db_register_relation` | 只读   | 注册表关联关系（discover → AI 分析 → 注册闭环）               |
+| `db_mutate`            | **写** | 执行 INSERT/UPDATE/DELETE/REPLACE，每次弹出确认弹窗需人工批准 |
 
-AI 调用这些工具时遵循与用户命令相同的只读保护：只能执行 SELECT/SHOW/DESCRIBE/EXPLAIN，DELETE/DROP/UPDATE 等写操作会被拒绝。查询结果以折叠表格形式渲染，支持关联表展开。
+只读工具遵循与用户命令相同的只读保护：只能执行 SELECT/SHOW/DESCRIBE/EXPLAIN，DELETE/DROP/UPDATE 等写操作会被拒绝。`db_query`、`db_list_tables`、`db_table_schema` 支持可选的 `connection`/`database` 参数以跨库/跨连接查询。
+
+`db_mutate` 用于数据修改：DDL（CREATE/DROP/ALTER/TRUNCATE）被硬性拒绝，UPDATE/DELETE 无 WHERE 时会显示警告。每次调用弹出 overlay 确认弹窗（Enter 确认 / Esc 取消），不可跳过。
 
 ## 数据存储
 
 所有状态存储在 `~/.pi/database/` 下：
 
-| 文件               | 用途                                    |
-| ------------------ | --------------------------------------- |
-| `workspace.json`   | 当前环境/数据库选择                     |
-| `schema/`          | 表结构 JSON 缓存（按连接/数据库分文件） |
-| `state.db`         | 查询历史、收藏、表关系的 SQLite 存储    |
-| `connections.yaml` | 连接定义                                |
+| 文件               | 用途                                 |
+| ------------------ | ------------------------------------ |
+| `workspace.json`   | 当前环境/数据库选择                  |
+| `state.db`         | 查询历史、收藏、表关系的 SQLite 存储 |
+| `connections.yaml` | 连接定义                             |
 
 ## 环境要求
 

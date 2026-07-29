@@ -42,14 +42,15 @@ No exceptions. Two CI failures in a row were caused by skipping step 3.
   All delegates (`manager`, `history`, `favorites`, `relationGraph`) are
   private fields of the facade. If a command needs new behavior, expose a
   purpose-built method on the facade — don't punch through to internals.
-- **Single query path**: every SQL query flows through
-  `DatabaseConnectionManager.executeQuery` — the only place that applies the
-  read-only guard, LIMIT policy, and USE + query on a dedicated connection.
-  Never create new query paths or bypass `sql-policy.ts`.
-- **Pure utilities**: `sql-policy.ts` and `formatting/result-table.ts` are
-  pure functions with no side effects. Keep them that way — no pi imports, no
-  I/O. When logic doesn't need pi APIs, extract it to pure functions so it
-  becomes testable with plain values.
+- **Single execution path per operation type**: all read queries flow through
+  `DatabaseConnectionManager.executeQuery` (read-only guard + LIMIT). All write
+  mutations flow through `DatabaseConnectionManager.executeMutation` (DDL
+  rejected by `prepareMutationQuery`, human confirmation gate). Never create
+  new query paths or bypass `sql-policy.ts`.
+- **Pure utilities**: `sql-policy.ts` (read-only guard + LIMIT injection + DML
+  validation) and `formatting/result-table.ts` are pure functions with no side
+  effects. Keep them that way — no pi imports, no I/O. When logic doesn't need
+  pi APIs, extract it to pure functions so it becomes testable with plain values.
 - **Seams for testing**: modules accept their dependencies via constructor
   parameters (`StateStore`, `Database` handle, `QueryFn`). Don't introduce
   hardcoded paths (`homedir()`) or singletons — inject the seam instead.

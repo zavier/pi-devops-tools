@@ -22,7 +22,7 @@
 ```
 仅改 commands/ + formatting/ ← 门面（state/workspace.ts）微增方法
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-不动：connection/  schema/  history/  relation/  types.ts
+不动：connection/  history/  relation/  types.ts
 不动：LLM tools（db-tools.ts）— 无需改，渲染器自动升级
 ```
 
@@ -45,7 +45,6 @@
 | `commands/db.ts`              | 改写 `/db` 面板       | 纯文本 → 交互式 dashboard menu                             |
 | `commands/switch.ts`          | 改动                  | defaultDb 预选确认；加载中 BorderedLoader                  |
 | `commands/add.ts`             | 改动                  | 密码掩码 + 测试连接 + 即时校验                             |
-| `commands/refresh-schema.ts`  | 改动                  | notify → BorderedLoader                                    |
 | `commands/relations.ts`       | 小改                  | pickTable → pickTableFuzzy                                 |
 | `commands/schema.ts`          | 小改                  | pickTable → pickTableFuzzy                                 |
 | `state/workspace.ts`          | 追加方法              | deleteHistory、getHistoryById（P0-1 需要）                 |
@@ -90,7 +89,7 @@ export async function pickTableFuzzy(
   ws: DatabaseWorkspaceService,
   prompt: string,
 ): Promise<string | undefined> {
-  // 1. 预加载表列表（用缓存，极快）
+  // 1. 预加载表列表（实时查询 information_schema）
   let tables: string[];
   try {
     tables = await ws.getTables();
@@ -233,8 +232,8 @@ export async function withLoader<T>(
 const result = await withLoader(ctx, "执行查询…", (signal) => ws.executeQuery(sql));
 if (!result) return; // 用户取消
 
-// refresh-schema.ts：
-const snapshot = await withLoader(ctx, "刷新表结构缓存…", (signal) => ws.refreshSchema());
+// 示例：用于其他异步操作
+const result = await withLoader(ctx, "执行操作…", (signal) => ws.executeQuery(sql));
 if (!snapshot) return;
 ```
 
@@ -341,7 +340,6 @@ deleteHistory(id: number): boolean {
 | -------------------------------------- | --------------------------------------- | ----------------------------------------- |
 | `query.ts` — `executeAndDisplay`       | 裸 await `ws.executeQuery`              | `withLoader(ctx, "执行查询…", ...)`       |
 | `switch.ts` — `getDatabases()`         | `ctx.ui.notify("加载...")` 然后裸 await | `withLoader(ctx, "加载数据库列表…", ...)` |
-| `refresh-schema.ts`                    | `ctx.ui.notify("正在刷新...")`          | `withLoader(ctx, "刷新表结构缓存…", ...)` |
 | `relations.ts` — `discoverForeignKeys` | 裸 await                                | `withLoader(ctx, "同步外键…", ...)`       |
 
 **注意事项**：
@@ -383,7 +381,6 @@ deleteHistory(id: number): boolean {
 │  📡 环境：test               │  ← 状态区（theme.fg("dim")）
 │     ⚡ 连接：qa (10.0.x.x)   │
 │     🗃️  数据库：mysql        │
-│     📦 缓存：48 个表         │
 │                              │
 │  ─── 操作 ────────────────  │
 │  > 🔄 切换环境/数据库        │  ← SelectList（↑↓ 选择 Enter 执行）
@@ -394,7 +391,6 @@ deleteHistory(id: number): boolean {
 │    ⭐ 收藏查询               │
 │    🔗 表关联关系             │
 │    🏗️ ER 图                  │
-│    🔄 刷新表结构缓存         │
 │                              │
 │  Esc 退出                     │
 └──────────────────────────────┘
@@ -570,9 +566,7 @@ if (defaultDb) {
 
 ```typescript
 // commands/db.ts — restoreStatusBar
-ctx.ui.setWidget(STATUS_KEY, [
-  `🗄 ${env}/${database}  @${connectionId}  ⚡ ${cache.tables.length}表`,
-]);
+ctx.ui.setWidget(STATUS_KEY, [`🗄 ${env}/${database}  @${connectionId}`]);
 ```
 
 ### 5.3 语言统一
