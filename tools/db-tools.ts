@@ -23,6 +23,8 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { formatTableCompact } from "../formatting/result-table";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
+import { prepareMutationQuery } from "../connection/sql-policy";
+import { showMutationConfirm } from "../commands/mutate-confirm";
 
 function truncate(text: string): string {
   const t = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
@@ -271,6 +273,106 @@ export function registerDbTools(
         ],
         details: { database: scope, relations: rows },
       };
+    },
+  });
+
+  pi.registerTool({
+    name: "db_mutate",
+    label: "DB Mutate",
+    description:
+      "Execute a data mutation (INSERT/UPDATE/DELETE/REPLACE). " +
+      "⚠️ REQUIRES HUMAN CONFIRMATION — a dialog will appear for the user " +
+      "to approve or reject the SQL before it executes. " +
+      "DDL (CREATE/DROP/ALTER/TRUNCATE) is rejected outright. " +
+      "Use this to insert, update, or delete rows — never use db_query for writes.",
+    promptSnippet: "Modify data (INSERT/UPDATE/DELETE) with human approval gate",
+    promptGuidelines: [
+      "Use db_mutate to insert/update/delete data — db_query rejects writes.",
+      "Always include a WHERE clause in UPDATE/DELETE unless the user explicitly wants to affect all rows.",
+      "Explain what the mutation will do before calling db_mutate, so the user understands why the confirmation dialog appeared.",
+      "For multi-statement mutations, call db_mutate once per statement; each requires separate approval.",
+    ],
+    parameters: Type.Object({
+      sql: Type.String({
+        description: "DML SQL (INSERT/UPDATE/DELETE/REPLACE). DDL rejected.",
+      }),
+      ...targetParams,
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // 1. Validate the SQL is a DML mutation
+      let validation: ReturnType<typeof prepareMutationQuery>;
+      try {
+        validation = prepareMutationQuery(params.sql);
+      } catch (err: any) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `SQL rejected: ${err.message}` }],
+          details: { error: err.message },
+        };
+      }
+
+      // 2. Resolve target
+      const ws = ready(!!(params.connection && params.database));
+      const target = ws.resolveTarget({
+        connectionId: params.connection,
+        database: params.database,
+      });
+
+      // 3. Show confirmation dialog
+      const confirmed = await showMutationConfirm(ctx, {
+        sql: validation.sql,
+        operation: validation.operation,
+        warning: validation.warning,
+        connectionId: target.connectionId,
+        database: target.database,
+      });
+
+      if (!confirmed) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Mutation rejected by user: ${validation.sql}`,
+            },
+          ],
+          details: { rejected: true, sql: validation.sql },
+        };
+      }
+
+      // 4. Execute
+      try {
+        const result = await ws.executeMutation(validation.sql, {
+          connectionId: params.connection,
+          database: params.database,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                `✅ Mutation executed successfully.`,
+                `Connection: ${result.connectionId}`,
+                `Database: ${result.database}`,
+                `SQL: ${result.sql}`,
+                `Affected rows: ${result.affectedRows} (${result.elapsed})`,
+              ].join("\n"),
+            },
+          ],
+          details: {
+            sql: result.sql,
+            affectedRows: result.affectedRows,
+            elapsed: result.elapsed,
+            connection: result.connectionId,
+            database: result.database,
+          },
+        };
+      } catch (err: any) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Mutation failed: ${err.message}` }],
+          details: { sql: validation.sql, error: err.message },
+        };
+      }
     },
   });
 

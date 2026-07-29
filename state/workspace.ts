@@ -352,6 +352,28 @@ export class DatabaseWorkspaceService {
     return { ...result, related };
   }
 
+  // ── Mutation ───────────────────────────────────────────────────
+
+  /**
+   * Execute a data mutation (INSERT/UPDATE/DELETE/REPLACE).
+   * Bypasses the read-only guard — callers must enforce their own approval gate.
+   */
+  async executeMutation(
+    sql: string,
+    opts?: { connectionId?: string; database?: string },
+  ): Promise<{
+    affectedRows: number;
+    elapsed: string;
+    sql: string;
+    connectionId: string;
+    database: string;
+  }> {
+    const target = this.resolveTarget(opts);
+    const result = await this.manager.executeMutation(target.connectionId, target.database, sql);
+    this._lastSql = sql;
+    return { ...result, connectionId: target.connectionId, database: target.database };
+  }
+
   // ── History ────────────────────────────────────────────────────
 
   saveHistory(sql: string, rowCount: number, elapsed: string, target?: QueryTarget): HistoryEntry {

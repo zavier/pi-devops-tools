@@ -9,6 +9,18 @@
 /** Statements the workspace allows. `\b` matters: rejects "SELECTOR" etc. */
 export const READONLY_SQL_RE = /^(SELECT|SHOW|DESCRIBE|EXPLAIN)\b/i;
 
+/** DML statements allowed for the mutation tool. Rejects DDL (CREATE/DROP/ALTER/TRUNCATE). */
+export const MUTATION_SQL_RE = /^(INSERT|UPDATE|DELETE|REPLACE)\b/i;
+
+const WHERE_RE = /\bWHERE\b/i;
+
+export interface MutationValidation {
+  sql: string;
+  operation: "INSERT" | "UPDATE" | "DELETE" | "REPLACE";
+  hasWhere: boolean;
+  warning?: string;
+}
+
 /** Default row cap applied to SELECT statements without a trailing LIMIT. */
 export const DEFAULT_QUERY_LIMIT = 100;
 
@@ -33,4 +45,30 @@ export function prepareReadOnlyQuery(sql: string, limit: number = DEFAULT_QUERY_
   if (TRAILING_LIMIT_RE.test(trimmed)) return trimmed;
   if (FOR_UPDATE_RE.test(trimmed)) return trimmed;
   return `${trimmed.replace(/;+\s*$/, "")} LIMIT ${limit}`;
+}
+
+/**
+ * Validate that `sql` is a DML mutation (INSERT/UPDATE/DELETE/REPLACE).
+ * Throws on DDL, SELECT, or any unrecognized statement.
+ * Returns metadata for the confirmation UI: operation type, whether it has
+ * a WHERE clause, and an optional warning for WHERE-less UPDATE/DELETE.
+ */
+export function prepareMutationQuery(sql: string): MutationValidation {
+  const trimmed = sql.trim();
+  if (!MUTATION_SQL_RE.test(trimmed)) {
+    throw new Error(
+      "仅允许 DML 写操作（INSERT、UPDATE、DELETE、REPLACE）。" +
+        "DDL（CREATE、DROP、ALTER、TRUNCATE）被禁止。",
+    );
+  }
+
+  const operation = trimmed.match(/^(\w+)/i)![1].toUpperCase() as MutationValidation["operation"];
+  const hasWhere = WHERE_RE.test(trimmed);
+
+  let warning: string | undefined;
+  if ((operation === "UPDATE" || operation === "DELETE") && !hasWhere) {
+    warning = `${operation} 没有 WHERE 子句 — 将影响表中所有行！`;
+  }
+
+  return { sql: trimmed, operation, hasWhere, warning };
 }

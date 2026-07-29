@@ -7,7 +7,7 @@
  * so USE and the query can't be split across pool connections.
  */
 
-import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
+import mysql, { type Pool, type RowDataPacket, type ResultSetHeader } from "mysql2/promise";
 import type { ResolvedConnectionConfig } from "./db-config";
 import { prepareReadOnlyQuery, DEFAULT_QUERY_LIMIT } from "./sql-policy";
 
@@ -22,6 +22,12 @@ export interface QueryOutput {
   rows: RowDataPacket[];
   elapsed: string;
   sql: string; // final SQL after policy (LIMIT may have been appended)
+}
+
+export interface MutationOutput {
+  affectedRows: number;
+  elapsed: string;
+  sql: string;
 }
 
 export class DatabaseConnectionManager {
@@ -194,6 +200,34 @@ export class DatabaseConnectionManager {
       refColumn: row.REFERENCED_COLUMN_NAME as string,
       relationType: "MANY_TO_ONE" as const,
     }));
+  }
+
+  /**
+   * Execute a DML mutation (INSERT/UPDATE/DELETE/REPLACE).
+   * No read-only guard; no LIMIT injection.
+   * Returns affectedRows from MySQL's ResultSetHeader.
+   */
+  async executeMutation(
+    connectionId: string,
+    database: string,
+    sql: string,
+    opts: { timeout?: number } = {},
+  ): Promise<MutationOutput> {
+    const pool = this.getPool(connectionId);
+    const conn = await pool.getConnection();
+    try {
+      await conn.query(`USE \`${database}\``);
+      const start = Date.now();
+      const [result] = await conn.query<ResultSetHeader>({ sql, timeout: opts.timeout ?? 30000 });
+      const elapsed = `${((Date.now() - start) / 1000).toFixed(3)}s`;
+      return {
+        affectedRows: result.affectedRows,
+        elapsed,
+        sql,
+      };
+    } finally {
+      conn.release();
+    }
   }
 
   /** Close all pools. */
