@@ -32,10 +32,6 @@ export class StateStore {
     this.sqlite.pragma("journal_mode = WAL");
   }
 
-  get schemaDir(): string {
-    return join(this.baseDir, "schema");
-  }
-
   get connectionsFile(): string {
     return join(this.baseDir, "connections.yaml");
   }

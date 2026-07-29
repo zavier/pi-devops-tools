@@ -17,15 +17,29 @@ import type { SelectItem } from "@earendil-works/pi-tui";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { RelatedResult, SqlRow } from "../types";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
-import { formatTableResult } from "../formatting/result-table";
+import { formatTableCompact } from "../formatting/result-table";
 import { pickTableFuzzy, withLoader } from "./utils";
-import type { QueryResultDetails } from "./renderers";
+import type { QueryResultEntryData } from "./renderers";
 
 interface ExecutedResult {
   columns: string[];
   rows: SqlRow[];
   elapsed: string;
   sql: string; // final SQL after policy (LIMIT may have been appended)
+}
+
+// ── Row sanitization ────────────────────────────────────────────
+
+/** Convert SqlRow values to string|null — safe for JSON serialization in entries. */
+function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
+  return rows.map((row) => {
+    const obj: Record<string, string | null> = {};
+    for (const key of Object.keys(row)) {
+      const val = row[key];
+      obj[key] = val === null || val === undefined ? null : String(val);
+    }
+    return obj;
+  });
 }
 
 // ── Related results formatting ──────────────────────────────────
@@ -40,7 +54,7 @@ function formatRelatedResults(related: RelatedResult[]): string {
     lines.push(`行数：${r.rowCount}（${r.elapsed}）`);
     lines.push("");
     if (r.rows.length > 0) {
-      lines.push(formatTableResult({ columns: r.columns, rows: r.rows }));
+      lines.push(formatTableCompact({ columns: r.columns, rows: r.rows }));
     } else {
       lines.push("（空结果）");
     }
@@ -49,7 +63,7 @@ function formatRelatedResults(related: RelatedResult[]): string {
   return lines.join("\n");
 }
 
-// ── Display (renders an already-executed result — never re-queries) ──
+// ── Display (dual audience: TUI entry + LLM context) ───────────
 
 async function displayQueryResult(
   ctx: ExtensionCommandContext,
@@ -58,26 +72,38 @@ async function displayQueryResult(
   result: ExecutedResult,
   related: RelatedResult[] = [],
 ): Promise<void> {
+  const database = ws.current!.database;
   try {
     ws.saveHistory(result.sql, result.rows.length, result.elapsed);
   } catch {
     /* non-fatal */
   }
 
-  const formattedData = formatTableResult({ columns: result.columns, rows: result.rows });
+  // ── TUI: adaptive-width table (entry, not in LLM context) ───────
+
+  pi.appendEntry("db-query-result", {
+    database,
+    sql: result.sql,
+    rowCount: result.rows.length,
+    elapsed: result.elapsed,
+    columns: result.columns,
+    rows: sanitizeRows(result.rows),
+    relatedCount: related.length,
+  } satisfies QueryResultEntryData);
+
+  // ── LLM context: compact table + metadata (display: false) ───────
+
+  const compact = formatTableCompact({ columns: result.columns, rows: result.rows });
   const relatedText = related.length > 0 ? formatRelatedResults(related) : "";
 
-  // One sendMessage serves both audiences: the custom renderer shows a compact,
-  // persistent view in the TUI, and the same content reaches the LLM context.
-  // deliverAs "nextTurn" queues it silently without triggering a turn.
   const content = [
     `## 数据库查询结果`,
     ``,
-    `**数据库**：${ws.current!.database}`,
+    `**数据库**：${database}`,
     `**SQL**：${result.sql}`,
     `**行数**：${result.rows.length}（${result.elapsed}）`,
     ``,
-    formattedData,
+    compact,
   ];
   if (related.length > 0) {
     content.push(``, `### 关联表（${related.length} 个）`, ``, relatedText);
@@ -87,16 +113,7 @@ async function displayQueryResult(
     {
       customType: "db-query-result",
       content: content.join("\n"),
-      display: true,
-      details: {
-        database: ws.current!.database,
-        sql: result.sql,
-        rowCount: result.rows.length,
-        elapsed: result.elapsed,
-        mainTable: formattedData,
-        relatedText,
-        relatedCount: related.length,
-      } satisfies QueryResultDetails,
+      display: false,
     },
     { deliverAs: "followUp", triggerTurn: false },
   );

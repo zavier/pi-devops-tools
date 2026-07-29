@@ -53,9 +53,10 @@ No exceptions. Two CI failures in a row were caused by skipping step 3.
 - **Seams for testing**: modules accept their dependencies via constructor
   parameters (`StateStore`, `Database` handle, `QueryFn`). Don't introduce
   hardcoded paths (`homedir()`) or singletons — inject the seam instead.
-- **Cache-first, not cache-only**: `getTables()` and `getTableSchema()` check
-  local JSON cache first, fall back to live DB. The cache is never the source
-  of truth — it's a performance optimization.
+- **Live schema, no cache**: `getTables()` and `getTableSchema()` always query
+  the live DB (`information_schema`). There is no schema cache to refresh or
+  keep consistent — live queries are cheap enough and never stale. Don't
+  reintroduce a cache layer without a measured need.
 - **BFS is DB-agnostic**: `RelationGraph.bfsQuery()` receives a `QueryFn` from
   its caller. The graph doesn't know about mysql2 — it only knows "give me a
   function that runs SQL". This is what makes the graph testable with a stub.
@@ -76,8 +77,7 @@ No exceptions. Two CI failures in a row were caused by skipping step 3.
 - Use `vitest` (`describe` / `it` / `expect`).
 - Isolate with real substitutes, not mocks:
   - SQLite stores → `new Database(":memory:")`
-  - Schema cache → temp directory (`node:os.tmpdir()`)
-  - Connection config → temp YAML files
+  - Workspace service → temp-directory `StateStore` + temp `connections.yaml`
   - Relation graph → stub `QueryFn` that routes by `schema.table` prefix
 - No live MySQL in tests. The CI runner has no database — tests that require
   a live connection belong in integration tests (not in this repo).

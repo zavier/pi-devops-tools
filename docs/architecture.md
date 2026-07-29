@@ -1,6 +1,6 @@
 # pi-devops-tools 架构设计
 
-pi-devops-tools 是一个 [pi](https://pi.dev) 终端扩展，提供交互式 MySQL 数据库工作空间。通过 `/db` 命令在终端内完成查询、浏览表结构、管理表关联关系、缓存 schema 等操作。
+pi-devops-tools 是一个 [pi](https://pi.dev) 终端扩展，提供交互式 MySQL 数据库工作空间。通过 `/db` 命令在终端内完成查询、浏览表结构、管理表关联关系等操作。
 
 ## 一、系统全景
 
@@ -17,17 +17,17 @@ pi-devops-tools 是一个 [pi](https://pi.dev) 终端扩展，提供交互式 My
 │  ┌───────────────────▼───────────────────────────────┐  │
 │  │          DatabaseWorkspaceService                  │  │
 │  │              (facade / 门面)                       │  │
-│  └───┬──────────┬──────────┬──────────┬──────────────┘  │
-│      │          │          │          │                  │
-│  ┌───▼──┐ ┌────▼────┐ ┌───▼───┐ ┌───▼──────┐           │
-│  │连接层 │ │Schema层│ │历史/收藏│ │关系图引擎│           │
-│  └───┬──┘ └────┬────┘ └───┬───┘ └───┬──────┘           │
-└──────┼─────────┼──────────┼─────────┼──────────────────┘
-       │         │          │         │
-  ┌────▼──┐ ┌───▼────┐ ┌───▼───┐ ┌──▼──────────┐
-  │ MySQL │ │  JSON  │ │SQLite │ │  In-memory   │
-  │ Pool  │ │ Cache  │ │  DB   │ │    Graph     │
-  └───────┘ └────────┘ └───────┘ └──────────────┘
+│  └───┬──────────────────┬──────────────────────────┘  │
+│      │                  │          │                     │
+│  ┌───▼──┐          ┌───▼───┐ ┌───▼──────┐            │
+│  │连接层 │          │历史/收藏│ │关系图引擎│            │
+│  └───┬──┘          └───┬───┘ └───┬──────┘            │
+└──────┼─────────────────┼─────────┼───────────────────┘
+       │                 │         │
+  ┌────▼──┐         ┌───▼───┐ ┌──▼──────────┐
+  │ MySQL │         │SQLite │ │  In-memory   │
+  │ Pool  │         │  DB   │ │    Graph     │
+  └───────┘         └───────┘ └──────────────┘
 ```
 
 ## 二、分层架构
@@ -38,7 +38,6 @@ pi-devops-tools 是一个 [pi](https://pi.dev) 终端扩展，提供交互式 My
 commands/          ← UI 层：/db 子命令处理器，只依赖门面接口
 state/workspace.ts ← 门面层：DatabaseWorkspaceService，组合所有模块
 connection/        ← 连接层：MySQL 连接池管理 + SQL 安全策略
-schema/            ← Schema 层：本地 JSON 缓存读写
 history/           ← 持久层：查询历史 + 收藏夹 (SQLite)
 relation/          ← 关系层：表关联持久化 (SQLite)
 relation-graph.ts  ← 图引擎：内存双向图 + BFS 遍历
@@ -75,10 +74,12 @@ class DatabaseWorkspaceService {
   async executeQuery(sql): Promise<QueryResult>;
   async executeQueryWithRelations(sql, table, autoJoin): Promise<...>;
 
-  // ── Schema ──
-  async getTables(): Promise<string[]>;
-  async getTableSchema(table): Promise<ColumnInfo>;
-  async refreshSchema(): Promise<SchemaSnapshot>;
+  // ── 目标解析（跨库/跨连接）──
+  resolveTarget(opts?): QueryTarget;  // 默认当前选择，可按调用覆盖
+
+  // ── Schema（实时查询，无缓存）──
+  async getTables(opts?): Promise<string[]>;
+  async getTableSchema(table, opts?): Promise<ColumnInfo>;
 
   // ── 历史 / 收藏 ──
   saveHistory(sql, rowCount, elapsed): HistoryEntry;
@@ -127,21 +128,18 @@ executeQuery(connId, db, sql)
 - `SELECT ...` → 追加 `LIMIT 100`（默认，可在 connections.yaml 中配置 `queryLimit`）
 - `SHOW ...` / `DESCRIBE ...` → 原样通过
 
-### 3.4 Schema 缓存
+### 3.4 Schema 实时查询与跨库目标解析
 
-```
-查询流程：
-  getTables()
-    ├─ 缓存命中 → 返回 JSON 中的表列表
-    └─ 缓存未命中 → 查询 information_schema → 返回
+`getTables()` / `getTableSchema()` 每次都直接查询 `information_schema` — **没有缓存层**。历史上曾有本地 JSON 缓存（`/db refresh-schema` 刷新），后来移除：实时查询成本很低，缓存带来的陈旧问题和维护成本不值。（详见 4.4）
 
-  refreshSchema()
-    ├─ 查询 information_schema.TABLES（获取表列表）
-    ├─ 批并行查询每张表的 COLUMNS + INDEXES（5 并发）
-    └─ 持久化到 ~/.pi/database/schema/<connId>/<db>.json
-```
+门面的 `resolveTarget({ connectionId?, database? })` 是跨库能力的核心：
 
-**缓存不是事实来源** — 它只是性能优化。刷新是显式的（`/db refresh-schema`），或切换数据库时自动触发（`autoLoadSchema`）。
+- 默认解析为当前 workspace 选择（`switchTo` 设定的连接 + 数据库）
+- 只传 `database` → 当前连接上的另一个库（MySQL 同实例天然支持 `db.table` 跨库 JOIN — 连接池不指定默认数据库，`USE` 只是默认值而非沙箱）
+- 只传 `connectionId` → 回落到该连接的 `defaultDatabase`
+- 都传 → 任意已配置连接上的任意库（跨实例无法 JOIN，但可分别查询）
+
+LLM 工具（`db_query` 等）通过可选 `connection` / `database` 参数暴露这一能力，不需要 `/db switch` 来回切换。
 
 ### 3.5 关系图引擎 — RelationGraph
 
@@ -199,12 +197,11 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 
 所有数据在 `~/.pi/database/` 下：
 
-| 文件                        | 格式         | 内容                                                          |
-| --------------------------- | ------------ | ------------------------------------------------------------- |
-| `workspace.json`            | JSON         | 当前选择的环境/连接/数据库                                    |
-| `connections.yaml`          | YAML         | 用户配置的数据库连接（支持 `${ENV}` 替换）                    |
-| `state.db`                  | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations` |
-| `schema/<connId>/<db>.json` | JSON         | 表/列/索引快照，带 `refreshedAt` 时间戳                       |
+| 文件               | 格式         | 内容                                                          |
+| ------------------ | ------------ | ------------------------------------------------------------- |
+| `workspace.json`   | JSON         | 当前选择的环境/连接/数据库                                    |
+| `connections.yaml` | YAML         | 用户配置的数据库连接（支持 `${ENV}` 替换）                    |
+| `state.db`         | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations` |
 
 ## 四、关键设计决策
 
@@ -229,17 +226,18 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
 - `StateStore` 接受可选 `baseDir` — 测试注入 `tmpdir()`，生产用 `~/.pi/database`
 - Store 类接受 `Database` 句柄 — 测试传 `new Database(":memory:")`
 - `RelationGraph.bfsQuery()` 接受 `QueryFn` — 测试传 stub 函数，按 `schema.table` 前缀路由返回值
-- Schema cache 函数接受可选 `baseDir` — 测试用临时目录
 
 这种方式的优点是测试运行快（无网络 IO）、可并行、可离线运行。
 
-### 4.4 为什么缓存优先但不自动刷新？
+### 4.4 为什么不做 Schema 缓存？
 
-Schema 缓存（JSON 文件）读取快于 information_schema 查询，尤其是在远程数据库场景。但它不会自动过期 — 用户显式执行 `/db refresh-schema` 或切换数据库时才刷新。这样设计的考虑：
+早期版本有本地 JSON 缓存（`schema/<connId>/<db>.json` + `/db refresh-schema`），后来整体移除，全部实时查询 `information_schema`。理由：
 
-- 自动过期需要跟踪 DDL 变更，需要额外的轮询或触发器
-- pi 终端会话通常针对同一 schema 连续工作，缓存新鲜度足够
-- 用户控制刷新时机，避免意外的网络延迟
+- **实时查询成本很低** — information_schema 查询是毫秒级的本地元数据读取，即使远程数据库也可忽略
+- **缓存永不过时是不可能的** — 自动过期需要跟踪 DDL 变更，手动刷新（`/db refresh-schema`）则把负担推给用户，AI 拿到陈旧表列表时还无法自愈
+- **少一层少一类 bug** — 缓存读写、目录管理、刷新命令、autoLoad 全部消失，代码路径只剩一条
+
+如果未来某场景证明实时查询是瓶颈（如超高延迟链路 + 频繁列表），再以「有测量的需求」为前提重新引入。
 
 ## 五、数据流走查
 
@@ -270,19 +268,7 @@ Schema 缓存（JSON 文件）读取快于 information_schema 查询，尤其是
    └─ pi.sendMessage()              ← 发送 db-query-result 给 pi
 ```
 
-### 5.2 Schema 刷新
-
-```
-1. commands/refresh-schema.ts: handleRefreshSchema()
-   └─ ws.refreshSchema()
-        │
-2. schema/cache.ts: refreshSchemaCache()
-   ├─ manager.getTables()           ← information_schema.TABLES
-   ├─ Promise.all(batch) × N        ← 5 并发查询每张表
-   └─ saveSchemaCache()             ← 持久化 JSON
-```
-
-### 5.3 关系注册
+### 5.2 关系注册
 
 ```
 1. commands/relations.ts: handleRelationsAdd()
@@ -308,14 +294,13 @@ Schema 缓存（JSON 文件）读取快于 information_schema 查询，尤其是
 | 支持 PostgreSQL | 新增 `connection/pg-manager.ts`，实现相同接口    | `DatabaseConnectionManager` 接口已是隐式的 |
 | 新增子命令      | 在 `commands/` 下创建文件，在 `db.ts` 路由中注册 | 不需要改门面（如果现有方法够用）           |
 | 替换 SQLite     | 改 `StateStore` 构造函数 + 三个 Store 类         | Store 类对外接口不变                       |
-| Schema 自动过期 | 在 `getTables()` 中加时间戳检查                  | 不影响其他模块                             |
 | 导出查询结果    | 在 `commands/` 下新增 handler                    | 纯 UI 层改动                               |
 
 ## 七、代码质量保障
 
 ```
 tsc --noEmit     ← TypeScript 类型检查（strict mode）
-vitest run       ← 60 个单元测试（无外部依赖）
+vitest run       ← 100+ 个单元测试（无外部依赖）
 oxlint           ← Rust linter（correctness + suspicious + perf）
 oxfmt --check    ← Rust formatter（统一风格）
 ```

@@ -20,7 +20,6 @@ import { handleQuery } from "./query";
 import { handleHistory } from "./history";
 import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
-import { handleRefreshSchema } from "./refresh-schema";
 
 // ====== Autocomplete item type (structurally matches pi-tui AutocompleteItem) ======
 
@@ -41,7 +40,6 @@ const SUBCOMMANDS = [
   "history",
   "favorite",
   "relations",
-  "refresh-schema",
 ] as const;
 
 export function registerDbCommand(
@@ -50,7 +48,7 @@ export function registerDbCommand(
 ): void {
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | refresh-schema",
+      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations",
 
     getArgumentCompletions: async (prefix) => {
       return getCompletions(prefix, getWorkspace());
@@ -95,9 +93,6 @@ export function registerDbCommand(
           break;
         case "relations":
           await handleRelations(ctx, ws, pi, rest);
-          break;
-        case "refresh-schema":
-          await handleRefreshSchema(ctx, ws);
           break;
         default:
           ctx.ui.notify(`未知命令: ${sub}。可用：${SUBCOMMANDS.join(", ")}`, "warning");
@@ -188,7 +183,6 @@ const DASHBOARD_ACTIONS: DashboardAction[] = [
   { value: "history", label: "📜 查询历史", needsConnection: true },
   { value: "favorite", label: "⭐ 收藏查询", needsConnection: true },
   { value: "relations", label: "🔗 表关联关系", needsConnection: true },
-  { value: "refresh-schema", label: "🔄 刷新表结构缓存", needsConnection: true },
 ];
 
 /** Send a silent context message so the LLM knows the DB state. */
@@ -223,12 +217,10 @@ async function showDashboard(
   let statusLines: string[] = [];
   if (ws.current) {
     const conn = ws.getCurrentConnection();
-    const cache = ws.autoLoadSchema();
     statusLines = [
       `📡 环境：${ws.current.environment}`,
       `⚡ 连接：${ws.current.connectionId}（${conn?.host ?? "?"}）`,
       `🗃️  数据库：${ws.current.database}`,
-      cache ? `📦 缓存：${cache.tables.length} 个表` : "📦 缓存：无",
     ];
   } else if (ws.isConfigured) {
     const envs = ws.getEnvironments();
@@ -336,9 +328,6 @@ async function dispatchAction(
       break;
     case "relations":
       await handleRelations(ctx, ws, pi, rest);
-      break;
-    case "refresh-schema":
-      await handleRefreshSchema(ctx, ws);
       break;
   }
 }

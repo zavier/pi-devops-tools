@@ -26,19 +26,18 @@ import {
 import { RelationGraph } from "../relation-graph";
 import type { RelationRow } from "../relation/store";
 import type { RelatedResult, SqlRow } from "../types";
-import type { SchemaSnapshot } from "../schema/cache";
-import {
-  loadSchemaCache,
-  refreshSchemaCache,
-  getCachedTables,
-  getCachedTableSchema,
-} from "../schema/cache";
 import { StateStore } from "./state-store";
 
 // ====== Internal types ======
 
 interface WorkspaceState {
   environment: string;
+  connectionId: string;
+  database: string;
+}
+
+/** Effective target of a call: defaults to the workspace selection, overridable per call. */
+export interface QueryTarget {
   connectionId: string;
   database: string;
 }
@@ -231,85 +230,88 @@ export class DatabaseWorkspaceService {
     saveWorkspace(this.store.workspaceFile, this.current);
   }
 
+  // ── Target resolution ──────────────────────────────────────────
+
+  /**
+   * Resolve which connection + database a call should hit.
+   * Defaults to the workspace selection; an explicit connectionId without a
+   * database falls back to that connection's defaultDatabase. A database
+   * alone targets another database on the current connection — same-instance
+   * cross-db queries work natively in MySQL via `db.table` qualified names.
+   */
+  resolveTarget(opts?: { connectionId?: string; database?: string }): QueryTarget {
+    const connectionId = opts?.connectionId ?? this.current?.connectionId;
+    if (!connectionId) {
+      throw new Error(
+        "No database selected. Run /db switch first, or pass connection + database explicitly.",
+      );
+    }
+    const cfg = this.connections.find((c) => c.id === connectionId);
+    if (!cfg) {
+      const available = this.connections.map((c) => c.id).join(", ");
+      throw new Error(`Connection '${connectionId}' not found. Available: ${available}`);
+    }
+    const database =
+      opts?.database ??
+      (connectionId === this.current?.connectionId ? this.current!.database : cfg.defaultDatabase);
+    if (!database) {
+      throw new Error(
+        `No database specified and connection '${connectionId}' has no defaultDatabase`,
+      );
+    }
+    return { connectionId, database };
+  }
+
+  /** List configured connections (id / environment / defaultDatabase) for discovery. */
+  listConnections(): Array<{ id: string; environment: string; defaultDatabase?: string }> {
+    return this.connections.map((c) => ({
+      id: c.id,
+      environment: c.environment,
+      defaultDatabase: c.defaultDatabase,
+    }));
+  }
+
   // ── Databases (always live) ────────────────────────────────────
 
-  async getDatabases(connectionId: string): Promise<string[]> {
-    return this.manager.getDatabases(connectionId);
+  async getDatabases(connectionId?: string): Promise<string[]> {
+    const id = connectionId ?? this.current?.connectionId;
+    if (!id) throw new Error("No database selected");
+    return this.manager.getDatabases(id);
   }
 
-  // ── Tables (cache-first) ───────────────────────────────────────
+  // ── Tables (always live) ───────────────────────────────────────
 
-  async getTables(): Promise<string[]> {
-    if (!this.current) throw new Error("No database selected");
-    const cached = getCachedTables(
-      this.current.connectionId,
-      this.current.database,
-      this.store.baseDir,
-    );
-    if (cached) return cached;
-    return this.manager.getTables(this.current.connectionId, this.current.database);
+  async getTables(opts?: { connectionId?: string; database?: string }): Promise<string[]> {
+    const target = this.resolveTarget(opts);
+    return this.manager.getTables(target.connectionId, target.database);
   }
 
-  // ── Table schema (cache-first) ─────────────────────────────────
+  // ── Table schema (always live) ─────────────────────────────────
 
-  async getTableSchema(table: string): Promise<{ columns: SqlRow[]; indexes: SqlRow[] }> {
-    if (!this.current) throw new Error("No database selected");
-
-    const cached = getCachedTableSchema(
-      this.current.connectionId,
-      this.current.database,
-      table,
-      this.store.baseDir,
-    );
-    if (cached) {
-      return {
-        columns: cached.columns.map((c) => ({
-          COLUMN_NAME: c.name,
-          COLUMN_TYPE: c.type,
-          IS_NULLABLE: c.nullable ? "YES" : "NO",
-          COLUMN_KEY: c.key,
-          COLUMN_DEFAULT: c.default,
-          EXTRA: c.extra,
-          COLUMN_COMMENT: c.comment,
-        })),
-        indexes: cached.indexes.flatMap((idx) =>
-          idx.columns.map((col, i) => ({
-            INDEX_NAME: idx.name,
-            COLUMN_NAME: col,
-            NON_UNIQUE: idx.unique ? 0 : 1,
-            SEQ_IN_INDEX: i + 1,
-          })),
-        ),
-      };
-    }
-
-    return this.manager.getTableSchema(this.current.connectionId, this.current.database, table);
-  }
-
-  // ── Schema cache ───────────────────────────────────────────────
-
-  autoLoadSchema(): SchemaSnapshot | null {
-    if (!this.current) return null;
-    return loadSchemaCache(this.current.connectionId, this.current.database, this.store.baseDir);
-  }
-
-  async refreshSchema(): Promise<SchemaSnapshot> {
-    if (!this.current) throw new Error("No database selected");
-    return refreshSchemaCache(
-      this.manager,
-      this.current.connectionId,
-      this.current.database,
-      this.store.baseDir,
-    );
+  async getTableSchema(
+    table: string,
+    opts?: { connectionId?: string; database?: string },
+  ): Promise<{ columns: SqlRow[]; indexes: SqlRow[] }> {
+    const target = this.resolveTarget(opts);
+    return this.manager.getTableSchema(target.connectionId, target.database, table);
   }
 
   // ── Query ──────────────────────────────────────────────────────
 
   async executeQuery(
     sql: string,
-  ): Promise<{ columns: string[]; rows: SqlRow[]; elapsed: string; sql: string }> {
-    if (!this.current) throw new Error("No database selected");
-    return this.manager.executeQuery(this.current.connectionId, this.current.database, sql);
+    opts?: { connectionId?: string; database?: string },
+  ): Promise<{
+    columns: string[];
+    rows: SqlRow[];
+    elapsed: string;
+    sql: string;
+    connectionId: string;
+    database: string;
+  }> {
+    const target = this.resolveTarget(opts);
+    const result = await this.manager.executeQuery(target.connectionId, target.database, sql);
+    return { ...result, connectionId: target.connectionId, database: target.database };
   }
 
   async executeQueryWithRelations(
@@ -352,13 +354,21 @@ export class DatabaseWorkspaceService {
 
   // ── History ────────────────────────────────────────────────────
 
-  saveHistory(sql: string, rowCount: number, elapsed: string): HistoryEntry {
-    if (!this.current) throw new Error("No database selected");
+  saveHistory(sql: string, rowCount: number, elapsed: string, target?: QueryTarget): HistoryEntry {
+    const t =
+      target ??
+      (this.current
+        ? { connectionId: this.current.connectionId, database: this.current.database }
+        : null);
+    if (!t) throw new Error("No database selected");
     this._lastSql = sql;
     return this.history.save({
-      connectionId: this.current.connectionId,
-      environment: this.current.environment,
-      database: this.current.database,
+      connectionId: t.connectionId,
+      environment:
+        this.connections.find((c) => c.id === t.connectionId)?.environment ??
+        this.current?.environment ??
+        "",
+      database: t.database,
       sql,
       rowCount,
       elapsed,
@@ -404,9 +414,10 @@ export class DatabaseWorkspaceService {
 
   // ── Relations ──────────────────────────────────────────────────
 
-  listRelations(table?: string): RelationRow[] {
-    if (!this.current) return this.relationGraph.listAll();
-    return this.relationGraph.list(this.current.database, table);
+  listRelations(table?: string, database?: string): RelationRow[] {
+    const schema = database ?? this.current?.database;
+    if (!schema) return this.relationGraph.listAll();
+    return this.relationGraph.list(schema, table);
   }
 
   registerRelation(
@@ -414,10 +425,10 @@ export class DatabaseWorkspaceService {
     sourceColumn: string,
     refTable: string,
     refColumn: string,
-    opts?: { condition?: string; relationType?: string },
+    opts?: { condition?: string; relationType?: string; database?: string },
   ): RelationRow {
-    if (!this.current) throw new Error("No database selected");
-    const schema = this.current.database;
+    const schema = opts?.database ?? this.current?.database;
+    if (!schema) throw new Error("No database selected");
     return this.relationGraph.register(
       { schema, table: sourceTable, column: sourceColumn, condition: opts?.condition || undefined },
       { schema, table: refTable, column: refColumn },

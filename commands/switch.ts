@@ -64,7 +64,6 @@ export async function showWorkspacePanel(
   lines.push("  /db history         查询历史");
   lines.push("  /db favorite        收藏的查询模板");
   lines.push("  /db relations       表关联关系管理");
-  lines.push("  /db refresh-schema  刷新表结构缓存");
 
   // Visible panel for the user (raw-text renderer).
   if (pi) {
@@ -190,16 +189,5 @@ export async function handleSwitch(
     { deliverAs: "followUp", triggerTurn: false },
   );
 
-  const cache = ws.autoLoadSchema();
-  if (cache) {
-    ctx.ui.notify(
-      `已连接：${env}/${database} @ ${connectionId}（缓存 ${cache.tables.length} 个表结构）`,
-      "info",
-    );
-  } else {
-    ctx.ui.notify(
-      `已连接：${env}/${database} @ ${connectionId}。执行 /db refresh-schema 缓存表结构。`,
-      "info",
-    );
-  }
+  ctx.ui.notify(`已连接：${env}/${database} @ ${connectionId}`, "info");
 }
