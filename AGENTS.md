@@ -24,6 +24,9 @@ npm run fmt:check   # oxfmt --check          — must pass (redundant after fmt)
 4. `git add -A && git commit`
 
 No exceptions. Two CI failures in a row were caused by skipping step 3.
+A third was caused by assuming oxfmt only checks `.ts` files — it also formats
+`.md` (table alignment, trailing whitespace, etc.). Run `npm run fmt` after
+**any** file change, including docs.
 
 ## Branches, commits, PRs
 
