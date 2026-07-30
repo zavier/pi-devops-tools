@@ -25,7 +25,8 @@
     "relation/",
     "connection/",
     "formatting/",
-    "tools/"
+    "tools/",
+    "skills/"
   ],
   "type": "module",
   "scripts": {
@@ -62,6 +63,9 @@
   "pi": {
     "extensions": [
       "./index.ts"
+    ],
+    "skills": [
+      "./skills/"
     ]
   }
 }

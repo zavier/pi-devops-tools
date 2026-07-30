@@ -1,8 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DatabaseWorkspaceService } from "./state/workspace";
 import { registerDbCommand, restoreStatusBar } from "./commands/db";
 import { registerRenderers } from "./commands/renderers";
 import { registerDbTools } from "./tools/db-tools";
+
+const baseDir = dirname(fileURLToPath(import.meta.url));
 
 export default function (pi: ExtensionAPI) {
   // Lazy init: extension factories may run in invocations that never start a
@@ -20,8 +24,14 @@ export default function (pi: ExtensionAPI) {
   // Register the /db command
   registerDbCommand(pi, getWorkspace);
 
-  // Register LLM tools (db_query, db_list_databases, db_list_tables, db_table_schema, db_list_relations, db_relation)
+  // Register LLM tools (db_query, db_discover, db_list_tables, db_table_schema, db_list_relations, db_relation)
   registerDbTools(pi, getWorkspace);
+
+  // Register bundled skills so they're discovered alongside the extension.
+  // skills/ lives in the extension directory and is included in the npm package.
+  pi.on("resources_discover", () => {
+    return { skillPaths: [join(baseDir, "skills")] };
+  });
 
   // Restore status bar on session start
   pi.on("session_start", (_event, ctx) => {

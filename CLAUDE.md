@@ -62,21 +62,21 @@ formatting/        ← formatTableResult — auto layout: horizontal / transpose
 
 ### LLM tools
 
-The extension registers seven tools (six read-only + one writing) for the LLM in `tools/db-tools.ts`:
+The extension registers seven tools for the LLM in `tools/db-tools.ts` (five read-only + two writing: `db_relation` writes to local SQLite metadata, `db_mutate` writes to MySQL):
 
-| Tool                | Type      | Description                                                                                                            |
-| ------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `db_query`          | read      | Execute a read-only SQL query; LIMIT appended automatically. Result truncated with `truncateHead` (50KB / 2000 lines). |
-| `db_list_databases` | read      | List configured connections and the databases on a connection — discovery for the override params below.               |
-| `db_list_tables`    | read      | List tables (live query).                                                                                              |
-| `db_table_schema`   | read      | Show columns + indexes for a table (live query). Uses shared `formatSchemaMarkdown` pure function.                     |
-| `db_list_relations` | read      | List registered table relationships — the AI reads these to write JOINs itself or plan batched queries.                |
-| `db_relation`       | read      | Manage table relationships: action="register" (idempotent upsert) or action="delete" (by column match).                |
-| `db_mutate`         | **write** | Execute INSERT/UPDATE/DELETE/REPLACE with a human confirmation gate (overlay dialog, Enter to approve). DDL rejected.  |
+| Tool                | Type      | Description                                                                                                                             |
+| ------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `db_query`          | read      | Execute a read-only SQL query; LIMIT appended automatically. Result truncated with `truncateHead` (50KB / 2000 lines).                  |
+| `db_discover`       | read      | Discover connections and databases — the entry point for exploration. Returns configured connections and the databases on a connection. |
+| `db_list_tables`    | read      | List tables (live query).                                                                                                               |
+| `db_table_schema`   | read      | Show columns + indexes for a table (live query). Uses shared `formatSchemaMarkdown` pure function.                                      |
+| `db_list_relations` | read      | List registered table relationships — the AI reads these to write JOINs itself or plan batched queries.                                 |
+| `db_relation`       | **write** | Manage table relationships in local SQLite: action="register" (idempotent upsert) or action="delete" (by column match).                 |
+| `db_mutate`         | **write** | Execute INSERT/UPDATE/DELETE/REPLACE with a human confirmation gate (overlay dialog, Enter to approve). DDL rejected.                   |
 
 `db_query`, `db_list_tables`, and `db_table_schema` default to the workspace selection but accept optional `connection` / `database` overrides, resolved by `DatabaseWorkspaceService.resolveTarget` (explicit connection without database falls back to its `defaultDatabase`). `db_list_relations` / `db_relation` accept an optional `database` override. Databases on the same MySQL instance can be joined directly with `db.table` qualified names — the pool connects without a default database, so `USE` is never a sandbox.
 
-The six read-only tools cross `DatabaseWorkspaceService.executeQuery`, so the read-only guard and LIMIT policy apply. `db_mutate` uses `executeMutation` — no read-only guard, but `prepareMutationQuery` rejects DDL and the confirmation dialog gates every execution.
+The five read-only tools cross `DatabaseWorkspaceService.executeQuery`, so the read-only guard and LIMIT policy apply. `db_relation` writes directly to local SQLite via `RelationGraph` / `RelationStore` — it does not touch MySQL and needs no read-only guard or confirmation gate (register is idempotent, delete matches exact columns). `db_mutate` uses `executeMutation` — no read-only guard, but `prepareMutationQuery` rejects DDL and the confirmation dialog gates every execution.
 
 ### Message rendering
 

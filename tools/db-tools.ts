@@ -40,8 +40,7 @@ function truncate(text: string): string {
 const targetParams = {
   connection: Type.Optional(
     Type.String({
-      description:
-        "Connection ID to query (see db_list_databases). Defaults to the current connection.",
+      description: "Connection ID to query (see db_discover). Defaults to the current connection.",
     }),
   ),
   database: Type.Optional(
@@ -86,7 +85,7 @@ export function registerDbTools(
     promptGuidelines: [
       "Use db_query to answer data questions directly instead of asking the user to run /db query.",
       "For questions spanning multiple databases on the same instance, write one query with db.table qualified names instead of switching databases.",
-      "Use db_list_databases to discover valid connection IDs and database names before passing connection/database params.",
+      "Use db_discover to discover valid connection IDs and database names before passing connection/database params.",
     ],
     parameters: Type.Object({
       sql: Type.String({ description: "Read-only SQL (SELECT / SHOW / DESCRIBE / EXPLAIN)" }),
@@ -128,15 +127,17 @@ export function registerDbTools(
   });
 
   pi.registerTool({
-    name: "db_list_databases",
-    label: "DB List Databases",
+    name: "db_discover",
+    label: "DB Discover",
     description:
-      "List configured connections and the databases on a connection. Use this to " +
-      "discover valid connection IDs and database names for the connection/database " +
-      "params of db_query, db_list_tables, and db_table_schema.",
-    promptSnippet: "List configured connections and databases",
+      "Discover available connections and databases — the entry point for exploration. " +
+      "Returns all configured connections (IDs, environments, default databases) plus " +
+      "the databases on a given connection. Use this first to learn what connection " +
+      "and database values are valid for the optional params of db_query, db_list_tables, " +
+      "and db_table_schema.",
+    promptSnippet: "Discover available connections and databases",
     promptGuidelines: [
-      "Use db_list_databases before passing a connection or database param to another db_* tool.",
+      "Use db_discover first when exploring — it tells you which connection and database values are valid.",
     ],
     parameters: Type.Object({
       connection: Type.Optional(
