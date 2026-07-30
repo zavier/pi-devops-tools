@@ -151,7 +151,7 @@ async function handleRelationsAdd(
   ]);
   if (!relationType) return;
 
-  const row = ws.registerRelation(srcTable, srcCol, refTable, refCol, {
+  const row = ws.upsertRelation(srcTable, srcCol, refTable, refCol, {
     condition: condition.trim() || undefined,
     relationType,
   });
@@ -276,8 +276,8 @@ async function handleRelationsDiscover(
             `3. 每对关系推断一个 relationType：MANY_TO_ONE / ONE_TO_MANY / ONE_TO_ONE / MANY_TO_MANY`,
             `4. 如果有分类型关联条件（如 type=1），请标注 condition`,
             ``,
-            `对每一对确认的关系，调用 db_register_relation 工具保存（参数：table / column / refTable / refColumn / relationType / condition）。`,
-            `如果 db_register_relation 工具不可用，再以 JSON 数组格式输出，每个元素：`,
+            `对每一对确认的关系，调用 db_relation 工具保存（action="register", table / column / refTable / refColumn / relationType / condition）。`,
+            `如果 db_relation 工具不可用，再以 JSON 数组格式输出，每个元素：`,
             `{"table":"源表","column":"源列","refTable":"目标表","refColumn":"目标列","relationType":"MANY_TO_ONE","condition":""}`,
             ``,
             `ER 图：`,

@@ -15,7 +15,7 @@ describe("RelationGraph", () => {
     const src: ColumnRef = { schema: "db1", table: "t_order", column: "user_id" };
     const tgt: ColumnRef = { schema: "db2", table: "t_user", column: "id" };
 
-    graph.register(src, tgt, "MANY_TO_ONE");
+    graph.upsert(src, tgt, "MANY_TO_ONE");
 
     // Forward direction
     const forward = graph.getDirectRelations("db1", "t_order");
@@ -26,13 +26,13 @@ describe("RelationGraph", () => {
     expect(reverse.size).toBe(1);
   });
 
-  it("removes relations", () => {
+  it("removes relations by column match", () => {
     const graph = createGraph();
 
     const src: ColumnRef = { schema: "db1", table: "t_order", column: "user_id" };
     const tgt: ColumnRef = { schema: "db2", table: "t_user", column: "id" };
 
-    graph.register(src, tgt, "MANY_TO_ONE");
+    graph.upsert(src, tgt, "MANY_TO_ONE");
     const removed = graph.remove(src, tgt);
     expect(removed).toBe(true);
 
@@ -40,26 +40,65 @@ describe("RelationGraph", () => {
     expect(forward.size).toBe(0);
   });
 
-  it("deduplicates when registering same relation twice", () => {
+  it("remove returns false for non-existent relation", () => {
     const graph = createGraph();
     const src: ColumnRef = { schema: "a", table: "t1", column: "c1" };
     const tgt: ColumnRef = { schema: "a", table: "t2", column: "c2" };
 
-    graph.register(src, tgt, "ONE_TO_ONE");
-    graph.register(src, tgt, "ONE_TO_ONE");
+    const removed = graph.remove(src, tgt);
+    expect(removed).toBe(false);
+  });
 
-    const relations = graph.getDirectRelations("a", "t1");
-    expect(relations.get(src)?.length).toBe(1);
+  it("removeById deletes and returns true, or false if not found", () => {
+    const graph = createGraph();
+    const src: ColumnRef = { schema: "a", table: "t1", column: "c1" };
+    const tgt: ColumnRef = { schema: "a", table: "t2", column: "c2" };
+
+    const row = graph.upsert(src, tgt, "MANY_TO_ONE");
+
+    expect(graph.removeById(row.id)).toBe(true);
+    expect(graph.list("a").length).toBe(0);
+
+    // Second delete is a no-op
+    expect(graph.removeById(row.id)).toBe(false);
+  });
+
+  it("upsert is idempotent — second call with same columns updates, not duplicates", () => {
+    const graph = createGraph();
+    const src: ColumnRef = { schema: "a", table: "t1", column: "c1" };
+    const tgt: ColumnRef = { schema: "a", table: "t2", column: "c2" };
+
+    graph.upsert(src, tgt, "ONE_TO_ONE");
+    graph.upsert(src, tgt, "MANY_TO_ONE");
+
+    // Only one relation, updated to MANY_TO_ONE
+    const relations = graph.list("a", "t1");
+    expect(relations.length).toBe(1);
+    expect(relations[0].relation_type).toBe("MANY_TO_ONE");
+  });
+
+  it("upsert with different conditions creates separate rows", () => {
+    const graph = createGraph();
+    const src: ColumnRef = { schema: "a", table: "t1", column: "c1", condition: "type=1" };
+    const src2: ColumnRef = { schema: "a", table: "t1", column: "c1", condition: "type=2" };
+    const tgt: ColumnRef = { schema: "a", table: "t2", column: "c2" };
+
+    graph.upsert(src, tgt, "MANY_TO_ONE");
+    graph.upsert(src2, tgt, "MANY_TO_ONE");
+
+    // Condition is part of the unique key — two separate relations
+    const relations = graph.list("a", "t1");
+    expect(relations.length).toBe(2);
   });
 
   it("filters list by schema and table", () => {
     const graph = createGraph();
-    graph.register(
+    graph.upsert(
       { schema: "a", table: "t1", column: "c1" },
       { schema: "a", table: "t2", column: "c2" },
       "ONE_TO_ONE",
     );
-    graph.register(
+    graph.upsert(
       { schema: "b", table: "t3", column: "c3" },
       { schema: "b", table: "t4", column: "c4" },
       "ONE_TO_ONE",
@@ -93,7 +132,7 @@ function stubQuery(routes: Record<string, Record<string, any>[]>) {
 describe("RelationGraph.bfsQuery", () => {
   it("follows one hop with parameterized IN and schema-qualified tables", async () => {
     const graph = createGraph();
-    graph.register(
+    graph.upsert(
       { schema: "db1", table: "t_order", column: "user_id" },
       { schema: "db1", table: "t_user", column: "id" },
     );
@@ -118,7 +157,7 @@ describe("RelationGraph.bfsQuery", () => {
     const graph = createGraph();
     // condition lives on the source column; it applies when BFS traverses
     // from the referenced side back towards the source.
-    graph.register(
+    graph.upsert(
       { schema: "db1", table: "t_order", column: "user_id", condition: "status=1" },
       { schema: "db1", table: "t_user", column: "id" },
     );
@@ -134,7 +173,7 @@ describe("RelationGraph.bfsQuery", () => {
 
   it("skips relations whose column values are all null", async () => {
     const graph = createGraph();
-    graph.register(
+    graph.upsert(
       { schema: "db1", table: "t_order", column: "user_id" },
       { schema: "db1", table: "t_user", column: "id" },
     );
@@ -148,11 +187,11 @@ describe("RelationGraph.bfsQuery", () => {
 
   it("respects maxDepth", async () => {
     const graph = createGraph();
-    graph.register(
+    graph.upsert(
       { schema: "db1", table: "a", column: "b_id" },
       { schema: "db1", table: "b", column: "id" },
     );
-    graph.register(
+    graph.upsert(
       { schema: "db1", table: "b", column: "c_id" },
       { schema: "db1", table: "c", column: "id" },
     );
@@ -177,7 +216,7 @@ describe("RelationGraph.bfsQuery", () => {
   it("does not loop on cyclic relations", async () => {
     const graph = createGraph();
     // a.b_id -> b.id and the graph is bidirectional, so b also points back at a
-    graph.register(
+    graph.upsert(
       { schema: "db1", table: "a", column: "b_id" },
       { schema: "db1", table: "b", column: "id" },
     );
@@ -194,7 +233,7 @@ describe("RelationGraph.bfsQuery", () => {
 
   it("follows cross-schema relations with qualified names", async () => {
     const graph = createGraph();
-    graph.register(
+    graph.upsert(
       { schema: "db1", table: "t_order", column: "user_id" },
       { schema: "db2", table: "t_user", column: "id" },
     );

@@ -64,17 +64,17 @@ formatting/        ← formatTableResult — auto layout: horizontal / transpose
 
 The extension registers seven tools (six read-only + one writing) for the LLM in `tools/db-tools.ts`:
 
-| Tool                   | Type      | Description                                                                                                            |
-| ---------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `db_query`             | read      | Execute a read-only SQL query; LIMIT appended automatically. Result truncated with `truncateHead` (50KB / 2000 lines). |
-| `db_list_databases`    | read      | List configured connections and the databases on a connection — discovery for the override params below.               |
-| `db_list_tables`       | read      | List tables (live query).                                                                                              |
-| `db_table_schema`      | read      | Show columns + indexes for a table (live query). Uses shared `formatSchemaMarkdown` pure function.                     |
-| `db_list_relations`    | read      | List registered table relationships — the AI reads these to write JOINs itself or plan batched queries.                |
-| `db_register_relation` | read      | Persist a discovered table relationship. Closes the loop from `/db relations discover` AI analysis.                    |
-| `db_mutate`            | **write** | Execute INSERT/UPDATE/DELETE/REPLACE with a human confirmation gate (overlay dialog, Enter to approve). DDL rejected.  |
+| Tool                | Type      | Description                                                                                                            |
+| ------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `db_query`          | read      | Execute a read-only SQL query; LIMIT appended automatically. Result truncated with `truncateHead` (50KB / 2000 lines). |
+| `db_list_databases` | read      | List configured connections and the databases on a connection — discovery for the override params below.               |
+| `db_list_tables`    | read      | List tables (live query).                                                                                              |
+| `db_table_schema`   | read      | Show columns + indexes for a table (live query). Uses shared `formatSchemaMarkdown` pure function.                     |
+| `db_list_relations` | read      | List registered table relationships — the AI reads these to write JOINs itself or plan batched queries.                |
+| `db_relation`       | read      | Manage table relationships: action="register" (idempotent upsert) or action="delete" (by column match).                |
+| `db_mutate`         | **write** | Execute INSERT/UPDATE/DELETE/REPLACE with a human confirmation gate (overlay dialog, Enter to approve). DDL rejected.  |
 
-`db_query`, `db_list_tables`, and `db_table_schema` default to the workspace selection but accept optional `connection` / `database` overrides, resolved by `DatabaseWorkspaceService.resolveTarget` (explicit connection without database falls back to its `defaultDatabase`). `db_list_relations` / `db_register_relation` accept an optional `database` override. Databases on the same MySQL instance can be joined directly with `db.table` qualified names — the pool connects without a default database, so `USE` is never a sandbox.
+`db_query`, `db_list_tables`, and `db_table_schema` default to the workspace selection but accept optional `connection` / `database` overrides, resolved by `DatabaseWorkspaceService.resolveTarget` (explicit connection without database falls back to its `defaultDatabase`). `db_list_relations` / `db_relation` accept an optional `database` override. Databases on the same MySQL instance can be joined directly with `db.table` qualified names — the pool connects without a default database, so `USE` is never a sandbox.
 
 The six read-only tools cross `DatabaseWorkspaceService.executeQuery`, so the read-only guard and LIMIT policy apply. `db_mutate` uses `executeMutation` — no read-only guard, but `prepareMutationQuery` rejects DDL and the confirmation dialog gates every execution.
 
@@ -95,7 +95,7 @@ Others (`db-tables`, `db-table-schema`, `db-er-diagram`) use the default custom-
 ### Relation graph data flow
 
 1. User registers a relation via `/db relations add`: `source_table.column → target_table.column`
-   - Or: AI discovers relationships and calls `db_register_relation` tool (the `/db relations discover` flow instructs the model to use this tool)
+   - Or: AI discovers relationships and calls `db_relation` tool (the `/db relations discover` flow instructs the model to use this tool)
 2. `RelationStore` persists to SQLite `table_relations` table
 3. `RelationGraph` rebuilds its in-memory bidirectional `forward` Map
 4. On query with auto-join, `bfsQuery()` starts from the queried table, follows registered edges, and returns related rows as separate `RelatedResult` objects

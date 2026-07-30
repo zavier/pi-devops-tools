@@ -20,7 +20,7 @@ export default function (pi: ExtensionAPI) {
   // Register the /db command
   registerDbCommand(pi, getWorkspace);
 
-  // Register LLM tools (db_query, db_list_databases, db_list_tables, db_table_schema, db_list_relations, db_register_relation)
+  // Register LLM tools (db_query, db_list_databases, db_list_tables, db_table_schema, db_list_relations, db_relation)
   registerDbTools(pi, getWorkspace);
 
   // Restore status bar on session start

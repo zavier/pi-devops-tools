@@ -72,7 +72,7 @@ export class RelationGraph {
 
   // ── CRUD (through store) ──────────────────────────────────────
 
-  register(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): RelationRow {
+  upsert(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): RelationRow {
     const rel: Omit<ColumnRelation, "id"> = {
       schema: source.schema,
       table: source.table,
@@ -84,31 +84,25 @@ export class RelationGraph {
       relationType,
     };
 
-    const row = this.store.insert(rel);
-    this.addToForward(source, target, relationType);
+    const row = this.store.upsert(rel);
+    // Full rebuild: upsert may update an existing edge's relationType,
+    // and addToForward's dedup would skip it.
+    this.rebuildForward();
     return row;
   }
 
   remove(source: ColumnRef, target: ColumnRef): boolean {
-    const all = this.store.list({
-      schema: source.schema,
-      table: source.table,
-    });
-
-    const match = all.find(
-      (r) =>
-        r.column_name === source.column &&
-        r.condition === (source.condition ?? "") &&
-        r.ref_schema === target.schema &&
-        r.ref_table === target.table &&
-        r.ref_column === target.column,
+    const deleted = this.store.deleteByColumns(
+      source.schema,
+      source.table,
+      source.column,
+      source.condition ?? "",
+      target.schema,
+      target.table,
+      target.column,
     );
-
-    if (!match) return false;
-
-    this.store.delete(match.id);
-    this.rebuildForward();
-    return true;
+    if (deleted) this.rebuildForward();
+    return deleted;
   }
 
   removeById(id: number): boolean {
@@ -260,7 +254,7 @@ export class RelationGraph {
           ex.ref_column === r.refColumn,
       );
       if (!exists) {
-        this.store.insert({
+        this.store.upsert({
           schema: r.schema,
           table: r.table,
           column: r.column,

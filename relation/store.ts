@@ -53,11 +53,24 @@ export class RelationStore {
       )
     `);
 
+    // Dedup before adding unique constraint — keep the row with the smallest id
+    this.db.exec(`
+      DELETE FROM table_relations
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM table_relations
+        GROUP BY schema, table_name, column_name, condition,
+                 ref_schema, ref_table, ref_column
+      )
+    `);
+
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_relations_schema_table
         ON table_relations(schema, table_name);
       CREATE INDEX IF NOT EXISTS idx_relations_ref
         ON table_relations(ref_schema, ref_table);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique
+        ON table_relations(schema, table_name, column_name, condition,
+                           ref_schema, ref_table, ref_column);
     `);
 
     this.initialized = true;
@@ -65,13 +78,29 @@ export class RelationStore {
 
   // ── CRUD ──────────────────────────────────────────────────────
 
-  /** Insert a new relation. Returns the created row with id. */
-  insert(rel: Omit<ColumnRelation, "id">): RelationRow {
-    const stmt = this.db.prepare(`
-      INSERT INTO table_relations (schema, table_name, column_name, condition, ref_schema, ref_table, ref_column, relation_type)
+  /** Upsert a relation. Creates or updates on conflict. Returns the row. */
+  upsert(rel: Omit<ColumnRelation, "id">): RelationRow {
+    this.db
+      .prepare(`
+      INSERT INTO table_relations
+        (schema, table_name, column_name, condition, ref_schema, ref_table, ref_column, relation_type)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
+      ON CONFLICT(schema, table_name, column_name, condition, ref_schema, ref_table, ref_column)
+      DO UPDATE SET
+        relation_type = excluded.relation_type,
+        updated_time  = datetime('now')
+    `)
+      .run(
+        rel.schema,
+        rel.table,
+        rel.column,
+        rel.condition,
+        rel.refSchema,
+        rel.refTable,
+        rel.refColumn,
+        rel.relationType,
+      );
+    return this.findByColumns(
       rel.schema,
       rel.table,
       rel.column,
@@ -79,9 +108,29 @@ export class RelationStore {
       rel.refSchema,
       rel.refTable,
       rel.refColumn,
-      rel.relationType,
-    );
-    return this.getById(Number(result.lastInsertRowid))!;
+    )!;
+  }
+
+  /** Find a relation by its full column tuple. */
+  findByColumns(
+    schema: string,
+    table: string,
+    column: string,
+    condition: string,
+    refSchema: string,
+    refTable: string,
+    refColumn: string,
+  ): RelationRow | undefined {
+    const row = this.db
+      .prepare(`
+      SELECT * FROM table_relations
+      WHERE schema = ? AND table_name = ? AND column_name = ? AND condition = ?
+        AND ref_schema = ? AND ref_table = ? AND ref_column = ?
+    `)
+      .get(schema, table, column, condition, refSchema, refTable, refColumn) as
+      | Record<string, any>
+      | undefined;
+    return row ? this.rowToRelation(row) : undefined;
   }
 
   /** Get a single relation by ID. */
@@ -132,6 +181,26 @@ export class RelationStore {
   /** Delete a relation by ID. */
   delete(id: number): boolean {
     const result = this.db.prepare("DELETE FROM table_relations WHERE id = ?").run(id);
+    return result.changes > 0;
+  }
+
+  /** Delete a relation by exact column match. Returns whether a row was deleted. */
+  deleteByColumns(
+    schema: string,
+    table: string,
+    column: string,
+    condition: string,
+    refSchema: string,
+    refTable: string,
+    refColumn: string,
+  ): boolean {
+    const result = this.db
+      .prepare(`
+      DELETE FROM table_relations
+      WHERE schema = ? AND table_name = ? AND column_name = ? AND condition = ?
+        AND ref_schema = ? AND ref_table = ? AND ref_column = ?
+    `)
+      .run(schema, table, column, condition, refSchema, refTable, refColumn);
     return result.changes > 0;
   }
 

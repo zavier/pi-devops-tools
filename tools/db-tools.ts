@@ -244,7 +244,7 @@ export function registerDbTools(
     promptSnippet: "List registered table relationships",
     promptGuidelines: [
       "Use db_list_relations before writing multi-table queries — registered relations tell you which columns join to which.",
-      "Check db_list_relations before db_register_relation to avoid registering a duplicate.",
+      "Check db_list_relations before db_relation to avoid redundant work (register is idempotent).",
     ],
     parameters: Type.Object({
       table: Type.Optional(Type.String({ description: "Only relations involving this table" })),
@@ -377,53 +377,111 @@ export function registerDbTools(
   });
 
   pi.registerTool({
-    name: "db_register_relation",
-    label: "DB Register Relation",
+    name: "db_relation",
+    label: "DB Relation",
     description:
-      "Persist a discovered table relationship (source column → target column) " +
-      "so future /db query auto-joins can follow it.",
-    promptSnippet: "Save a discovered table relationship",
+      "Manage table relationships. " +
+      "action='register': create or update a relationship (idempotent — safe to call " +
+      "repeatedly on the same column pair). " +
+      "action='delete': remove a relationship by exact column match. " +
+      "Use db_list_relations first to see what already exists.",
+    promptSnippet: "Register or delete a table relationship",
     promptGuidelines: [
-      "Use db_register_relation to persist each relationship found when analyzing the schema, instead of only printing JSON.",
+      "Use db_list_relations before db_relation to see existing relations and avoid redundant work.",
+      "action='register' is idempotent — if the same column pair exists, it will be updated.",
+      "action='delete' removes all relations matching the exact column pair.",
+      "After registering a relation, the auto-join engine can use it immediately in db_query.",
     ],
     parameters: Type.Object({
-      table: Type.String({ description: "Source table" }),
-      column: Type.String({ description: "Source column" }),
-      refTable: Type.String({ description: "Referenced table" }),
-      refColumn: Type.String({ description: "Referenced column" }),
+      action: StringEnum(["register", "delete"] as const, {
+        description: "register: create or update a relationship. delete: remove a relationship.",
+      }),
+      table: Type.String({ description: "Source table name" }),
+      column: Type.String({ description: "Source column name" }),
+      refTable: Type.String({ description: "Referenced table name" }),
+      refColumn: Type.String({ description: "Referenced column name" }),
       relationType: Type.Optional(
-        StringEnum(["MANY_TO_ONE", "ONE_TO_MANY", "ONE_TO_ONE", "MANY_TO_MANY"] as const),
+        StringEnum(["MANY_TO_ONE", "ONE_TO_MANY", "ONE_TO_ONE", "MANY_TO_MANY"] as const, {
+          description: "Relationship type (register only). Default: MANY_TO_ONE.",
+        }),
       ),
       condition: Type.Optional(
-        Type.String({ description: "Optional extra join condition, e.g. type=1" }),
+        Type.String({
+          description: "Extra join condition, e.g. type=1 (register only).",
+        }),
       ),
       database: Type.Optional(
         Type.String({
-          description: "Database the relation belongs to. Defaults to the current database.",
+          description: "Database name. Defaults to the current database.",
         }),
       ),
     }),
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, _signal, _onUpdate) {
       const ws = ready(!!params.database);
-      const row = ws.registerRelation(
-        params.table,
-        params.column,
-        params.refTable,
-        params.refColumn,
-        {
-          condition: params.condition,
-          relationType: params.relationType ?? "MANY_TO_ONE",
-          database: params.database,
-        },
-      );
+      const schema = params.database ?? ws.current?.database;
+      if (!schema) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "No database selected. Use /db switch first." }],
+          details: { error: "No database selected" },
+        };
+      }
+
+      if (params.action === "register") {
+        const row = ws.upsertRelation(
+          params.table,
+          params.column,
+          params.refTable,
+          params.refColumn,
+          {
+            condition: params.condition,
+            relationType: params.relationType ?? "MANY_TO_ONE",
+            database: params.database,
+          },
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Relation #${row.id}: ${params.table}.${params.column} → ` +
+                `${params.refTable}.${params.refColumn} (${row.relation_type})`,
+            },
+          ],
+          details: { relationId: row.id },
+        };
+      }
+
+      if (params.action === "delete") {
+        const deleted = ws.removeRelationByColumns(
+          schema,
+          params.table,
+          params.column,
+          params.refTable,
+          params.refColumn,
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: deleted
+                ? `Deleted relation: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`
+                : `No matching relation found: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`,
+            },
+          ],
+          details: { deleted },
+        };
+      }
+
       return {
+        isError: true,
         content: [
           {
             type: "text",
-            text: `Registered relation #${row.id}: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn} (${row.relation_type})`,
+            text: `Unknown action "${(params as any).action}". Expected "register" or "delete".`,
           },
         ],
-        details: { relationId: row.id },
+        details: { error: `Unknown action: ${(params as any).action}` },
       };
     },
   });

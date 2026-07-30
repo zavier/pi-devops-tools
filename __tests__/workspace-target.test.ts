@@ -128,11 +128,11 @@ describe("DatabaseWorkspaceService target resolution", () => {
     expect(entry.environment).toBe("prod");
   });
 
-  it("registerRelation / listRelations honor the database override", () => {
+  it("upsertRelation / listRelations honor the database override", () => {
     const ws = makeWorkspace();
     ws.switchTo("prod", "main", "appdb");
 
-    ws.registerRelation("orders", "user_id", "users", "id", { database: "logs" });
+    ws.upsertRelation("orders", "user_id", "users", "id", { database: "logs" });
 
     // Override targets the other schema...
     const inLogs = ws.listRelations(undefined, "logs");
@@ -146,12 +146,35 @@ describe("DatabaseWorkspaceService target resolution", () => {
 
   it("listRelations without a selection and no database returns all relations", () => {
     const ws = makeWorkspace();
-    ws.registerRelation("a", "x", "b", "y", { database: "somedb" });
+    ws.upsertRelation("a", "x", "b", "y", { database: "somedb" });
     expect(ws.listRelations()).toHaveLength(1);
   });
 
-  it("registerRelation throws without a selection and no database override", () => {
+  it("upsertRelation throws without a selection and no database override", () => {
     const ws = makeWorkspace();
-    expect(() => ws.registerRelation("a", "x", "b", "y")).toThrow(/No database selected/);
+    expect(() => ws.upsertRelation("a", "x", "b", "y")).toThrow(/No database selected/);
+  });
+
+  it("upsertRelation is idempotent — repeated calls update not duplicate", () => {
+    const ws = makeWorkspace();
+    ws.upsertRelation("a", "x", "b", "y", { database: "somedb", relationType: "MANY_TO_ONE" });
+    ws.upsertRelation("a", "x", "b", "y", { database: "somedb", relationType: "ONE_TO_ONE" });
+    const all = ws.listRelations();
+    expect(all).toHaveLength(1);
+    expect(all[0].relation_type).toBe("ONE_TO_ONE");
+  });
+
+  it("removeRelationByColumns deletes by column match", () => {
+    const ws = makeWorkspace();
+    ws.upsertRelation("a", "x", "b", "y", { database: "somedb" });
+    expect(ws.listRelations()).toHaveLength(1);
+
+    const deleted = ws.removeRelationByColumns("somedb", "a", "x", "b", "y");
+    expect(deleted).toBe(true);
+    expect(ws.listRelations()).toHaveLength(0);
+
+    // Second delete is a no-op
+    const deletedAgain = ws.removeRelationByColumns("somedb", "a", "x", "b", "y");
+    expect(deletedAgain).toBe(false);
   });
 });

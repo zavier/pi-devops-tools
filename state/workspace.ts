@@ -442,7 +442,7 @@ export class DatabaseWorkspaceService {
     return this.relationGraph.list(schema, table);
   }
 
-  registerRelation(
+  upsertRelation(
     sourceTable: string,
     sourceColumn: string,
     refTable: string,
@@ -451,7 +451,7 @@ export class DatabaseWorkspaceService {
   ): RelationRow {
     const schema = opts?.database ?? this.current?.database;
     if (!schema) throw new Error("No database selected");
-    return this.relationGraph.register(
+    return this.relationGraph.upsert(
       { schema, table: sourceTable, column: sourceColumn, condition: opts?.condition || undefined },
       { schema, table: refTable, column: refColumn },
       opts?.relationType ?? "MANY_TO_ONE",
@@ -460,6 +460,19 @@ export class DatabaseWorkspaceService {
 
   removeRelation(id: number): boolean {
     return this.relationGraph.removeById(id);
+  }
+
+  removeRelationByColumns(
+    database: string,
+    sourceTable: string,
+    sourceColumn: string,
+    refTable: string,
+    refColumn: string,
+  ): boolean {
+    return this.relationGraph.remove(
+      { schema: database, table: sourceTable, column: sourceColumn },
+      { schema: database, table: refTable, column: refColumn },
+    );
   }
 
   async discoverForeignKeys(): Promise<number> {

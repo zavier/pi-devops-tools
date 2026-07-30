@@ -90,7 +90,8 @@ class DatabaseWorkspaceService {
   saveFavorite(name, sql, desc): FavoriteEntry;
 
   // ── 关系图 ──
-  registerRelation(src, ref): RelationRow;
+  upsertRelation(srcTable, srcCol, refTable, refCol, opts?): RelationRow;
+  removeRelationByColumns(database, srcTable, srcCol, refTable, refCol): boolean;
   async discoverForeignKeys(): Promise<number>;
 }
 ```
@@ -305,14 +306,14 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
    ├─ select("源列")
    ├─ pickTable("关联表")
    ├─ select("关联列")
-   └─ ws.registerRelation(srcTable, srcCol, refTable, refCol)
+   └─ ws.upsertRelation(srcTable, srcCol, refTable, refCol)
         │
-2. workspace.ts: registerRelation()
-   └─ relationGraph.register()
+2. workspace.ts: upsertRelation()
+   └─ relationGraph.upsert()
         │
-3. relation-graph.ts: register()
-   ├─ store.insert()                ← 持久化到 SQLite
-   └─ addToForward(source, target)  ← 更新内存图（正反双向）
+3. relation-graph.ts: upsert()
+   ├─ store.upsert()              ← 持久化到 SQLite（幂等）
+   └─ rebuildForward()            ← 全量重建内存图（正反双向）
 ```
 
 ### 5.3 数据修改 `/db mutate`（LLM 工具）
