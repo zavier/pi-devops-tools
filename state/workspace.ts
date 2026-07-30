@@ -126,7 +126,7 @@ export class DatabaseWorkspaceService {
     name: string,
     cfg: {
       environment: string;
-      type: "mysql" | "postgres";
+      type: "mysql";
       host: string;
       port: number;
       username: string;

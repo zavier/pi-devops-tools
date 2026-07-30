@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 
 export interface ConnectionConfig {
   environment: string;
-  type: "mysql" | "postgres";
+  type: "mysql";
   host: string;
   port: number;
   username: string;
@@ -33,7 +33,7 @@ export interface ConnectionsFile {
 export interface ResolvedConnectionConfig {
   id: string;
   environment: string;
-  type: "mysql" | "postgres";
+  type: "mysql";
   host: string;
   port: number;
   username: string;

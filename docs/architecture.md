@@ -342,7 +342,7 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
 
 | 扩展场景        | 改动范围                                         | 说明                                       |
 | --------------- | ------------------------------------------------ | ------------------------------------------ |
-| 支持 PostgreSQL | 新增 `connection/pg-manager.ts`，实现相同接口    | `DatabaseConnectionManager` 接口已是隐式的 |
+
 | 新增子命令      | 在 `commands/` 下创建文件，在 `db.ts` 路由中注册 | 不需要改门面（如果现有方法够用）           |
 | 替换 SQLite     | 改 `StateStore` 构造函数 + 三个 Store 类         | Store 类对外接口不变                       |
 | 导出查询结果    | 在 `commands/` 下新增 handler                    | 纯 UI 层改动                               |
