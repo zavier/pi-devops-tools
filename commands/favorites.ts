@@ -1,5 +1,5 @@
 /**
- * /db favorite — manage saved query templates.
+ * /db favorite —— 管理已保存的查询模板。
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -8,7 +8,7 @@ import type { FavoriteEntry } from "../history/store";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
 import { executeAndDisplay } from "./query";
 
-// ── List formatting ─────────────────────────────────────────────
+// ── 列表格式化 ─────────────────────────────────────────────
 
 function formatFavoriteList(entries: FavoriteEntry[], currentDb?: string): string {
   if (entries.length === 0) {
@@ -34,7 +34,7 @@ function formatFavoriteList(entries: FavoriteEntry[], currentDb?: string): strin
   return lines.join("\n");
 }
 
-// ── Entry point ─────────────────────────────────────────────────
+// ── 入口 ─────────────────────────────────────────────────────
 
 export async function handleFavorite(
   ctx: ExtensionCommandContext,
@@ -51,7 +51,7 @@ export async function handleFavorite(
   return await handleFavoriteList(ctx, ws, pi);
 }
 
-// ── Add ─────────────────────────────────────────────────────────
+// ── 添加 ─────────────────────────────────────────────────────────
 
 async function handleFavoriteAdd(
   ctx: ExtensionCommandContext,
@@ -97,7 +97,7 @@ async function handleFavoriteAdd(
   );
 }
 
-// ── List & select ───────────────────────────────────────────────
+// ── 列表 & 选择 ───────────────────────────────────────────────
 
 async function handleFavoriteList(
   ctx: ExtensionCommandContext,
@@ -134,7 +134,7 @@ async function handleFavoriteList(
   } else if (action === "✏️ 编辑后执行") {
     const editedSql = await ctx.ui.editor("编辑 SQL", entry.sql);
     if (!editedSql || !editedSql.trim()) return;
-    // No pre-validation — the executor enforces the read-only guard.
+    // 不做预校验——执行器强制只读守卫。
     await executeAndDisplay(ctx, ws, pi, editedSql.trim());
   } else if (action === "🗑 删除") {
     const ok = await ctx.ui.confirm("确认删除", `删除收藏 "${entry.name}"？`);

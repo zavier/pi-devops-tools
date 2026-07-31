@@ -1,5 +1,5 @@
 /**
- * /db schema — view table structure (columns + indexes).
+ * /db schema —— 查看表结构（列 + 索引）。
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -33,9 +33,9 @@ export async function handleSchema(
     return;
   }
 
-  // display: true → persistent in the chat (default markdown rendering) and
-  // visible to the LLM. deliverAs "followUp" commits immediately when the
-  // agent is idle so the result renders without waiting for the next prompt.
+  // display: true → 在聊天中持久显示（默认 markdown 渲染）且
+  // 对 LLM 可见。deliverAs "followUp" 在 agent 空闲时立即提交，
+  // 结果无需等待下一个提示即可渲染。
   pi.sendMessage(
     {
       customType: "db-table-schema",

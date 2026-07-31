@@ -1,27 +1,27 @@
 /**
- * Pure keyboard-input reducers for custom TUI components.
+ * 自定义 TUI 组件的纯键盘输入 reducer。
  *
- * pi-tui's handleInput() receives RAW terminal bytes (\x7f, \r, \x1b)
- * or CSI-u sequences (Kitty keyboard protocol). Use matchesKey(data, keyId)
- * to decode special keys — NEVER compare data directly against byte
- * literals, because Kitty protocol sends multi-byte escape sequences.
+ * pi-tui 的 handleInput() 接收原始终端字节（\x7f、\r、\x1b）
+ * 或 CSI-u 序列（Kitty 键盘协议）。用 matchesKey(data, keyId)
+ * 解码特殊键——绝不直接拿 data 与字节字面量比较，因为 Kitty 协议
+ * 发送的是多字节转义序列。
  *
- * These reducers encapsulate that contract so they can be unit-tested
- * independently with raw byte inputs.
+ * 这些 reducer 封装了该契约，可以用原始字节输入独立做单元测试。
+ *
  */
 
 import { matchesKey, Key } from "@earendil-works/pi-tui";
 
-// ── Bracketed paste ─────────────────────────────────────────────
+// ── 括号粘贴 ─────────────────────────────────────────────
 //
-// pi enables bracketed paste mode in the terminal. When the user
-// pastes, the terminal wraps the content in these escape sequences.
-// We extract the payload and feed each printable char to the reducer.
+// pi 在终端中启用括号粘贴模式。用户粘贴时，终端会用这些转义序列
+// 包裹内容。我们提取载荷，把每个可打印字符喂给 reducer。
+//
 
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 
-/** Extract pasted payload from bracketed-paste escape sequence. */
+/** 从括号粘贴转义序列中提取粘贴载荷。 */
 function extractPaste(data: string): string | null {
   if (!data.includes(PASTE_START)) return null;
   const startIdx = data.indexOf(PASTE_START) + PASTE_START.length;
@@ -29,7 +29,7 @@ function extractPaste(data: string): string | null {
   return endIdx > startIdx ? data.slice(startIdx, endIdx) : data.slice(startIdx);
 }
 
-// ── Filter reducer (for fuzzy table picker) ─────────────────────
+// ── 过滤 reducer（用于模糊表选择器）────────────────────
 
 export interface FilterResult {
   filterText: string;
@@ -37,10 +37,10 @@ export interface FilterResult {
 }
 
 /**
- * Pure reducer for the fuzzy table picker filter bar.
+ * 模糊表选择器过滤栏的纯 reducer。
  *
- * Accumulates printable characters, deletes on Backspace/Delete,
- * passes through navigation keys (Enter, Esc, arrows, etc.).
+ * 累积可打印字符，Backspace/Delete 删除，
+ * 导航键（Enter、Esc、方向键等）直接透传。
  */
 export function createFilterReducer(): {
   handleKey: (data: string) => FilterResult;
@@ -49,16 +49,16 @@ export function createFilterReducer(): {
   let filterText = "";
 
   function handleKey(data: string): FilterResult {
-    // Special keys first — before printable char check, because
-    // some raw bytes (e.g. DEL = 127) are ≥ 32 and would otherwise
-    // be misclassified as printable.
+    // 先处理特殊键——在可打印字符判断之前，因为
+    // 某些原始字节（如 DEL = 127）≥ 32，否则会被误判为可打印。
+    //
     if (matchesKey(data, Key.backspace) || matchesKey(data, Key.delete)) {
       filterText = filterText.slice(0, -1);
       return { filterText, action: "filter" };
     }
 
-    // Bracketed paste — extract payload and append all printable chars.
-    // pi wraps pasted content in \x1b[200~ ... \x1b[201~.
+    // 括号粘贴——提取载荷并追加所有可打印字符。
+    // pi 用 \x1b[200~ ... \x1b[201~ 包裹粘贴内容。
     const pasted = extractPaste(data);
     if (pasted !== null) {
       for (const ch of pasted) {
@@ -67,21 +67,21 @@ export function createFilterReducer(): {
       return { filterText, action: "filter" };
     }
 
-    // Printable characters: single code-point, code ≥ 32
+    // 可打印字符：单个码点，码值 ≥ 32
     const code = data.charCodeAt(0);
     if (data.length === 1 && code >= 32) {
       filterText += data;
       return { filterText, action: "filter" };
     }
 
-    // Navigation keys (enter, esc, arrows, tab) — pass through unchanged
+    // 导航键（enter、esc、方向键、tab）——原样透传
     return { filterText, action: "navigate" };
   }
 
   return { handleKey, getFilterText: () => filterText };
 }
 
-// ── Password reducer (for masked input) ─────────────────────────
+// ── 密码 reducer（掩码输入用）────────────────────────
 
 export interface PasswordResult {
   password: string;
@@ -89,10 +89,10 @@ export interface PasswordResult {
 }
 
 /**
- * Pure reducer for masked password entry.
+ * 掩码密码输入的纯 reducer。
  *
- * Enter → submit, Escape → cancel, Backspace → delete last char,
- * printable characters → append.
+ * Enter → 提交，Escape → 取消，Backspace → 删除最后一个字符，
+ * 可打印字符 → 追加。
  */
 export function createPasswordReducer(): {
   handleKey: (data: string) => PasswordResult;
@@ -114,7 +114,7 @@ export function createPasswordReducer(): {
       return { password, action: "update" };
     }
 
-    // Bracketed paste — extract payload and append all printable chars.
+    // 括号粘贴——提取载荷并追加所有可打印字符。
     const pasted = extractPaste(data);
     if (pasted !== null) {
       for (const ch of pasted) {

@@ -1,13 +1,13 @@
 /**
- * Table Relation Store — SQLite-based persistence for table column relationships.
+ * 表关系存储 —— 基于 SQLite 的表列关系持久化。
  *
- * Table: table_relations (in the same state.db)
+ * 表：table_relations（在同一个 state.db 中）
  */
 
 import Database from "better-sqlite3";
 import type { ColumnRelation } from "../types";
 
-// ====== Types ======
+// ====== 类型 ======
 
 export interface RelationRow {
   id: number;
@@ -23,7 +23,7 @@ export interface RelationRow {
   updated_time: string;
 }
 
-// ====== Store ======
+// ====== 存储 ======
 
 export class RelationStore {
   private db: Database.Database;
@@ -53,7 +53,7 @@ export class RelationStore {
       )
     `);
 
-    // Dedup before adding unique constraint — keep the row with the smallest id
+    // 加唯一约束前去重——保留 id 最小的行
     this.db.exec(`
       DELETE FROM table_relations
       WHERE id NOT IN (
@@ -78,7 +78,7 @@ export class RelationStore {
 
   // ── CRUD ──────────────────────────────────────────────────────
 
-  /** Upsert a relation. Creates or updates on conflict. Returns the row. */
+  /** 幂等保存关系。冲突时创建或更新。返回该行。 */
   upsert(rel: Omit<ColumnRelation, "id">): RelationRow {
     this.db
       .prepare(`
@@ -111,7 +111,7 @@ export class RelationStore {
     )!;
   }
 
-  /** Find a relation by its full column tuple. */
+  /** 按完整列元组查找关系。 */
   findByColumns(
     schema: string,
     table: string,
@@ -133,7 +133,7 @@ export class RelationStore {
     return row ? this.rowToRelation(row) : undefined;
   }
 
-  /** Get a single relation by ID. */
+  /** 按 ID 获取单条关系。 */
   getById(id: number): RelationRow | undefined {
     const row = this.db.prepare("SELECT * FROM table_relations WHERE id = ?").get(id) as
       | Record<string, any>
@@ -142,7 +142,7 @@ export class RelationStore {
     return this.rowToRelation(row);
   }
 
-  /** List all relations, optionally filtered. */
+  /** 列出所有关系，可选过滤。 */
   list(filter?: {
     schema?: string;
     table?: string;
@@ -178,13 +178,13 @@ export class RelationStore {
     return rows.map((r) => this.rowToRelation(r));
   }
 
-  /** Delete a relation by ID. */
+  /** 按 ID 删除关系。 */
   delete(id: number): boolean {
     const result = this.db.prepare("DELETE FROM table_relations WHERE id = ?").run(id);
     return result.changes > 0;
   }
 
-  /** Delete a relation by exact column match. Returns whether a row was deleted. */
+  /** 按精确列对删除关系。返回是否删除了行。 */
   deleteByColumns(
     schema: string,
     table: string,
@@ -204,7 +204,7 @@ export class RelationStore {
     return result.changes > 0;
   }
 
-  /** Count relations, optionally filtered. */
+  /** 关系计数，可选过滤。 */
   count(filter?: { schema?: string }): number {
     const params: any[] = [];
     let where = "";
@@ -218,7 +218,7 @@ export class RelationStore {
     return row.cnt;
   }
 
-  // ── Helpers ───────────────────────────────────────────────────
+  // ── 辅助 ───────────────────────────────────────────────────
 
   private rowToRelation(row: Record<string, any>): RelationRow {
     return {

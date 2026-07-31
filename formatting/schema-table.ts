@@ -1,11 +1,10 @@
 /**
- * Schema markdown formatting — pure function shared by the /db schema
- * command and the db_tables LLM tool.
+ * schema markdown 格式化 —— 由 /db schema 命令和 db_tables LLM 工具共享的纯函数。
  */
 
 import type { SqlRow } from "../types";
 
-/** Escape pipes so column comments can't break the markdown table. */
+/** 转义竖线，避免列注释破坏 markdown 表格。 */
 function esc(val: unknown): string {
   const s = String(val ?? "");
   return s.replace(/\|/g, "\\|");

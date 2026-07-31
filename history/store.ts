@@ -1,13 +1,13 @@
 /**
- * Query History Store — SQLite-based persistence for /db query history.
+ * 查询历史存储 —— 基于 SQLite 的 /db 查询历史持久化。
  *
- * Database: ~/.pi/database/state.db
- * Table: query_history
+ * 数据库：~/.pi/database/state.db
+ * 表：query_history
  */
 
 import type Database from "better-sqlite3";
 
-// ====== Types ======
+// ====== 类型 ======
 
 export interface HistoryEntry {
   id: number;
@@ -27,7 +27,7 @@ export interface HistoryFilter {
   keyword?: string;
 }
 
-// ====== Store ======
+// ====== 存储 ======
 
 export class QueryHistoryStore {
   private db: Database.Database;
@@ -54,7 +54,7 @@ export class QueryHistoryStore {
       )
     `);
 
-    // Indexes for common queries
+    // 常用查询的索引
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_history_connection
         ON query_history(connection_id, database);
@@ -65,7 +65,7 @@ export class QueryHistoryStore {
     this.initialized = true;
   }
 
-  /** Save a query execution record. */
+  /** 保存一条查询执行记录。 */
   save(entry: Omit<HistoryEntry, "id" | "createdTime">): HistoryEntry {
     const stmt = this.db.prepare(`
       INSERT INTO query_history (connection_id, environment, database, sql, row_count, elapsed)
@@ -84,7 +84,7 @@ export class QueryHistoryStore {
     return this.getById(Number(result.lastInsertRowid))!;
   }
 
-  /** Get a single entry by ID. */
+  /** 按 ID 获取单条记录。 */
   getById(id: number): HistoryEntry | undefined {
     const row = this.db.prepare("SELECT * FROM query_history WHERE id = ?").get(id) as
       | Record<string, any>
@@ -94,7 +94,7 @@ export class QueryHistoryStore {
     return this.rowToEntry(row);
   }
 
-  /** List history entries, newest first. */
+  /** 列出历史记录，最新的在前。 */
   list(filter: HistoryFilter = {}): HistoryEntry[] {
     const limit = filter.limit ?? 50;
     const conditions: string[] = [];
@@ -124,13 +124,13 @@ export class QueryHistoryStore {
     return rows.map((r) => this.rowToEntry(r));
   }
 
-  /** Delete an entry by ID. */
+  /** 按 ID 删除记录。 */
   delete(id: number): boolean {
     const result = this.db.prepare("DELETE FROM query_history WHERE id = ?").run(id);
     return result.changes > 0;
   }
 
-  /** Total count of history entries. */
+  /** 历史记录总数。 */
   count(filter?: { connectionId?: string; database?: string }): number {
     const conditions: string[] = [];
     const params: any[] = [];
@@ -166,7 +166,7 @@ export class QueryHistoryStore {
   }
 }
 
-// ====== Favorite Types ======
+// ====== 收藏类型 ======
 
 export interface FavoriteEntry {
   id: number;
@@ -184,11 +184,11 @@ export interface FavoriteFilter {
   limit?: number;
 }
 
-// ====== Favorite Store ======
+// ====== 收藏存储 ======
 
 /**
- * Favorite queries persisted in the same SQLite DB as history.
- * Table: query_favorites
+ * 与历史同库持久化的收藏查询。
+ * 表：query_favorites
  */
 export class FavoriteStore {
   private db: Database.Database;
@@ -222,7 +222,7 @@ export class FavoriteStore {
     this.initialized = true;
   }
 
-  /** Save a new favorite. */
+  /** 保存一条新收藏。 */
   save(entry: Omit<FavoriteEntry, "id" | "createdTime" | "updatedTime">): FavoriteEntry {
     const stmt = this.db.prepare(`
       INSERT INTO query_favorites (name, sql, database, description)
@@ -232,7 +232,7 @@ export class FavoriteStore {
     return this.getById(Number(result.lastInsertRowid))!;
   }
 
-  /** Get by ID. */
+  /** 按 ID 获取。 */
   getById(id: number): FavoriteEntry | undefined {
     const row = this.db.prepare("SELECT * FROM query_favorites WHERE id = ?").get(id) as
       | Record<string, any>
@@ -241,7 +241,7 @@ export class FavoriteStore {
     return this.rowToEntry(row);
   }
 
-  /** List favorites, filtered by database and/or keyword. */
+  /** 列出收藏，可按数据库和/或关键词过滤。 */
   list(filter: FavoriteFilter = {}): FavoriteEntry[] {
     const limit = filter.limit ?? 100;
     const conditions: string[] = [];
@@ -266,7 +266,7 @@ export class FavoriteStore {
     return rows.map((r) => this.rowToEntry(r));
   }
 
-  /** Update a favorite's name, sql, and/or description. */
+  /** 更新收藏的名称、sql 和/或描述。 */
   update(
     id: number,
     fields: { name?: string; sql?: string; description?: string },
@@ -297,13 +297,13 @@ export class FavoriteStore {
     return this.getById(id);
   }
 
-  /** Delete a favorite by ID. */
+  /** 按 ID 删除收藏。 */
   delete(id: number): boolean {
     const result = this.db.prepare("DELETE FROM query_favorites WHERE id = ?").run(id);
     return result.changes > 0;
   }
 
-  /** Total count. */
+  /** 总数。 */
   count(filter?: { database?: string }): number {
     const conditions: string[] = [];
     const params: any[] = [];

@@ -3,9 +3,9 @@ import type { ColumnRef, ColumnRelation, RelatedResult } from "./types";
 import { RelationStore, type RelationRow } from "./relation/store";
 
 /**
- * The seam through which BFS executes queries. Supplied by the caller
- * (QueryRunner wires it to the connection manager) — keeps RelationGraph
- * DB-agnostic and testable with a stub.
+ * BFS 执行查询所用的接缝。由调用方提供
+ * （QueryRunner 把它接到连接管理器）——让 RelationGraph
+ * 保持数据库无关、可用 stub 测试。
  */
 export type QueryFn = (
   sql: string,
@@ -23,7 +23,7 @@ interface ForwardEntry {
 
 export class RelationGraph {
   private store: RelationStore;
-  // In-memory forward graph for BFS traversal, rebuilt on each mutation
+  // 供 BFS 遍历的内存前向图，每次变更后重建
   private forward = new Map<string, ForwardEntry>();
 
   constructor(db: Database) {
@@ -31,7 +31,7 @@ export class RelationGraph {
     this.rebuildForward();
   }
 
-  /** Rebuild the in-memory forward graph from the store. */
+  /** 从存储重建内存前向图。 */
   private rebuildForward(): void {
     this.forward.clear();
     const all = this.store.list();
@@ -55,14 +55,14 @@ export class RelationGraph {
     const sk = key(source);
     const tk = key(target);
 
-    // Forward
+    // 前向
     const fwdEntry = this.forward.get(sk) ?? { source, targets: [] };
     if (!fwdEntry.targets.some((e) => key(e.target) === tk)) {
       fwdEntry.targets.push({ target, relationType });
       this.forward.set(sk, fwdEntry);
     }
 
-    // Reverse (bidirectional)
+    // 反向（双向）
     const revEntry = this.forward.get(tk) ?? { source: target, targets: [] };
     if (!revEntry.targets.some((e) => key(e.target) === sk)) {
       revEntry.targets.push({ target: source, relationType });
@@ -70,7 +70,7 @@ export class RelationGraph {
     }
   }
 
-  // ── CRUD (through store) ──────────────────────────────────────
+  // ── CRUD（经存储）──────────────────────────────────────
 
   upsert(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): RelationRow {
     const rel: Omit<ColumnRelation, "id"> = {
@@ -85,8 +85,8 @@ export class RelationGraph {
     };
 
     const row = this.store.upsert(rel);
-    // Full rebuild: upsert may update an existing edge's relationType,
-    // and addToForward's dedup would skip it.
+    // 全量重建：upsert 可能更新既有边的 relationType，
+    // 而 addToForward 的去重会跳过它。
     this.rebuildForward();
     return row;
   }
@@ -119,7 +119,7 @@ export class RelationGraph {
     return this.store.list();
   }
 
-  // ── BFS traversal ─────────────────────────────────────────────
+  // ── BFS 遍历 ─────────────────────────────────────────────
 
   getDirectRelations(schema: string, table: string): Map<ColumnRef, ColumnRef[]> {
     const result = new Map<ColumnRef, ColumnRef[]>();
@@ -158,8 +158,8 @@ export class RelationGraph {
 
       const refs = this.getDirectRelations(item.schema, item.table);
 
-      // Gather all queries at this depth level so they can run in parallel.
-      // Each query target is independently reachable from the current table.
+      // 收集本层所有查询，以便并行执行。
+      // 每个查询目标都从当前表独立可达。
       interface QueryTask {
         targetCol: ColumnRef;
         sourceCol: ColumnRef;
@@ -194,7 +194,7 @@ export class RelationGraph {
         }
       }
 
-      // Fire all queries for this level in parallel.
+      // 并行发起本层所有查询。
       const settled = await Promise.allSettled(
         batch.map((t) =>
           (async () => {
@@ -236,7 +236,7 @@ export class RelationGraph {
     return results;
   }
 
-  // ── Foreign key sync ──────────────────────────────────────────
+  // ── 外键同步 ──────────────────────────────────────────
 
   mergeForeignKeys(newRelations: ColumnRelation[]): number {
     let added = 0;

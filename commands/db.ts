@@ -1,7 +1,7 @@
 /**
- * /db command — Database Workspace entry point.
+ * /db 命令 —— 数据库工作空间入口。
  *
- * Thin router: delegates to per-subcommand handler modules.
+ * 轻量路由器：委托给各子命令处理器模块。
  */
 
 import type {
@@ -21,7 +21,7 @@ import { handleHistory } from "./history";
 import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
 
-// ====== Autocomplete item type (structurally matches pi-tui AutocompleteItem) ======
+// ====== 自动补全项类型（结构上匹配 pi-tui AutocompleteItem）======
 
 interface AutocompleteItem {
   value: string;
@@ -29,7 +29,7 @@ interface AutocompleteItem {
   description?: string;
 }
 
-// ====== Command registration ======
+// ====== 命令注册 ======
 
 const SUBCOMMANDS = [
   "switch",
@@ -55,7 +55,7 @@ export function registerDbCommand(
     },
 
     handler: async (args, ctx) => {
-      // Dialogs are no-ops without a UI (print/json modes) — bail out early.
+      // 无 UI 时（print/json 模式）对话框是空操作——提前退出。
       if (!ctx.hasUI) return;
 
       const ws = getWorkspace();
@@ -63,7 +63,7 @@ export function registerDbCommand(
 
       switch (sub) {
         case undefined: {
-          // Send silent LLM context before showing interactive dashboard
+          // 在展示交互式仪表盘之前发送静默 LLM 上下文
           sendLLMContext(ws, pi);
           const action = await showDashboard(ctx, ws);
           if (!action) return;
@@ -101,7 +101,7 @@ export function registerDbCommand(
   });
 }
 
-// ====== Argument completions ======
+// ====== 参数补全 ======
 
 async function getCompletions(
   prefix: string,
@@ -118,18 +118,17 @@ async function getCompletions(
     relations: ["add", "remove", "discover", "er-diagram"],
   };
 
-  // When the first word is an EXACT match for a subcommand that owns
-  // sub-subcommands, show the second level immediately. This covers both
-  // "relations" (partial typing) and "relations " (Tab-completed with
-  // trailing space that pi may have stripped).
+  // 当第一个词与拥有子子命令的子命令完全匹配时，立即显示第二层。
+  // 同时覆盖 "relations"（输入中）和 "relations "（Tab 补全后带尾随
+  // 空格，可能被 pi 剥掉）两种情况。
   if (parts.length === 1 && SUBCOMMANDS.includes(sub as any) && sub in subSubs) {
     return subSubs[sub]
       .filter((s) => s.startsWith(partial))
       .map((s) => ({ value: `${sub} ${s} `, label: s }));
   }
 
-  // Table-name arguments (schema, query) — fire BEFORE the first-level
-  // partial match so exact subcommand matches don't self-reference.
+  // 表名参数（schema、query）——在第一级部分匹配之前触发，
+  // 避免精确子命令匹配自引用。
   const takesTable =
     sub === "schema" || sub === "query" || (sub === "relations" && parts[1] === "er-diagram");
   if (takesTable && ws.isReady) {
@@ -146,7 +145,7 @@ async function getCompletions(
     }
   }
 
-  // First argument: subcommand names (partial match).
+  // 第一个参数：子命令名（部分匹配）。
   if (parts.length === 1 && !hasTrailingSpace) {
     return SUBCOMMANDS.filter((s) => s.startsWith(sub)).map((s) => ({
       value: s + " ",
@@ -154,7 +153,7 @@ async function getCompletions(
     }));
   }
 
-  // Mid-typing sub-subcommand filtering (e.g. "relations a" → "add").
+  // 输入中的子子命令过滤（如 "relations a" → "add"）。
   if (subSubs[sub] && parts.length === 2 && !hasTrailingSpace) {
     const filtered = subSubs[sub].filter((s) => s.startsWith(partial));
     if (filtered.length > 0) {
@@ -165,12 +164,12 @@ async function getCompletions(
   return null;
 }
 
-// ====== Dashboard ================================================
+// ====== 仪表盘 ================================================
 
 interface DashboardAction {
   value: string;
   label: string;
-  /** Whether this action requires a connected DB */
+  /** 该操作是否需要已连接的数据库 */
   needsConnection?: boolean;
 }
 
@@ -185,7 +184,7 @@ const DASHBOARD_ACTIONS: DashboardAction[] = [
   { value: "relations", label: "🔗 表关联关系", needsConnection: true },
 ];
 
-/** Send a silent context message so the LLM knows the DB state. */
+/** 发送静默上下文消息，让 LLM 知道数据库状态。 */
 function sendLLMContext(ws: DatabaseWorkspaceService, pi: ExtensionAPI): void {
   if (ws.isReady) {
     pi.sendMessage(
@@ -208,12 +207,12 @@ function sendLLMContext(ws: DatabaseWorkspaceService, pi: ExtensionAPI): void {
   }
 }
 
-/** Build the interactive dashboard component. */
+/** 构建交互式仪表盘组件。 */
 async function showDashboard(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
 ): Promise<string | undefined> {
-  // Build status lines
+  // 构建状态行
   let statusLines: string[] = [];
   if (ws.current) {
     const conn = ws.getCurrentConnection();
@@ -229,42 +228,42 @@ async function showDashboard(
     statusLines = ["⚠️  尚未配置数据库连接", `配置文件：${ws.configPath}`];
   }
 
-  // Build action items — disable connection-required actions when not connected
+  // 构建操作项——未连接时禁用需要连接的操作
   const items: SelectItem[] = DASHBOARD_ACTIONS.map((a) => ({
     value: a.value,
     label: a.label,
     description: a.needsConnection && !ws.isReady ? "（需要先连接数据库）" : undefined,
   }));
 
-  // Warnings
+  // 警告
   const warnings = ws.getConfigWarnings();
   const showWarnings = warnings.length > 0;
 
   return ctx.ui.custom<string | undefined>((tui, theme, _kb, done) => {
     const container = new Container();
 
-    // Top border
+    // 上边框
     container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
-    // Header
+    // 表头
     container.addChild(new Text(theme.fg("accent", theme.bold("🗄 数据库工作区")), 1, 0));
 
-    // Status
+    // 状态
     for (const line of statusLines) {
       container.addChild(new Text(theme.fg("dim", `  ${line}`), 1, 0));
     }
 
-    // Warnings
+    // 警告
     if (showWarnings) {
       for (const w of warnings) {
         container.addChild(new Text(theme.fg("warning", `  ⚠ ${w}`), 1, 0));
       }
     }
 
-    // Separator
+    // 分隔线
     container.addChild(new Text(theme.fg("dim", "  ─── 操作 ─────────────────"), 1, 0));
 
-    // Action list
+    // 操作列表
     const selectList = new SelectList(items, Math.min(items.length, 12), {
       selectedPrefix: (t) => theme.fg("accent", t),
       selectedText: (t) => theme.fg("accent", t),
@@ -282,7 +281,7 @@ async function showDashboard(
     selectList.onCancel = () => done(void 0);
     container.addChild(selectList);
 
-    // Bottom border
+    // 下边框
     container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
     return {
@@ -296,7 +295,7 @@ async function showDashboard(
   });
 }
 
-/** Route a dashboard action to the correct handler. */
+/** 将仪表盘操作路由到正确的处理器。 */
 async function dispatchAction(
   action: string,
   ctx: ExtensionCommandContext,
@@ -332,9 +331,9 @@ async function dispatchAction(
   }
 }
 
-// ====== Status bar helpers ======
+// ====== 状态栏辅助 ======
 
-/** Restore status bar on session start. */
+/** 会话开始时恢复状态栏。 */
 export function restoreStatusBar(ws: DatabaseWorkspaceService, ctx: ExtensionContext): void {
   if (ws.isReady) {
     ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);

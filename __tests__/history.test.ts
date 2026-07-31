@@ -11,7 +11,7 @@ describe("QueryHistoryStore", () => {
   });
 
   afterEach(() => {
-    // Clean rows between tests — SQLite :memory: keeps the schema
+    // 测试间清空行——SQLite :memory: 保留 schema
     db.exec("DELETE FROM query_history");
   });
 

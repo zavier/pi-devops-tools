@@ -1,8 +1,8 @@
 /**
- * StateStore — owns the persistence directory, SQLite handle, and derived paths.
+ * StateStore —— 拥有持久化目录、SQLite 句柄和派生路径。
  *
- * One production adapter (default base dir ~/.pi/database).
- * One test adapter (temp dir) — two adapters, real seam.
+ * 一个生产适配器（默认基目录 ~/.pi/database）。
+ * 一个测试适配器（临时目录）——两个适配器，真实的接缝。
  */
 
 import Database from "better-sqlite3";
@@ -22,7 +22,7 @@ export class StateStore {
 
     const dbPath = join(this.baseDir, "state.db");
 
-    // Migrate from the old filename (history.db) if it exists.
+    // 若旧文件名（history.db）存在则迁移。
     const oldPath = join(this.baseDir, "history.db");
     if (!existsSync(dbPath) && existsSync(oldPath)) {
       renameSync(oldPath, dbPath);

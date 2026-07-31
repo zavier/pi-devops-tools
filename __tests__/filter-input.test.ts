@@ -1,31 +1,31 @@
 /**
- * Tests for filter-input.ts — verifies that the keyboard reducers correctly
- * handle pi-tui keyboard input, which arrives as raw terminal bytes
- * (\x7f, \r, \x1b) or CSI-u sequences (Kitty protocol).
+ * filter-input.ts 的测试——验证键盘 reducer 正确处理
+ * pi-tui 键盘输入（以原始终端字节到达）
+ * （\x7f、\r、\x1b）或 CSI-u 序列（Kitty 协议）。
  *
- * matchesKey(data, keyId) bridges raw bytes ↔ symbolic key identifiers
- * and is the ONLY correct way to detect special keys in handleInput.
+ * matchesKey(data, keyId) 在原始字节 ↔ 符号键标识之间搭桥，
+ * 是在 handleInput 中检测特殊键的唯一正确方式。
  *
- * These tests would have caught the bugs where we used raw byte comparison
- * (data === "\x7f", data === "\r") instead of matchesKey, which fails
- * when Kitty keyboard protocol is active (data becomes CSI-u sequences).
+ * 这些测试本可以抓住我们曾用原始字节比较的 bug
+ * （data === "\x7f"、data === "\r"）而不是 matchesKey——在
+ * Kitty 键盘协议激活时（data 变成 CSI-u 序列）会失败。
  */
 
 import { describe, it, expect } from "vitest";
 import { matchesKey, Key } from "@earendil-works/pi-tui";
 import { createFilterReducer, createPasswordReducer } from "../commands/filter-input";
 
-// ── pi-tui key contract (smoke test) ────────────────────────────
+// ── pi-tui 按键契约（冒烟测试）───────────────────────────
 //
-// Verify that matchesKey(data, keyId) correctly matches RAW terminal
-// bytes against symbolic key identifiers. This is the bridge we rely on.
+// 验证 matchesKey(data, keyId) 正确匹配原始终端字节与符号键标识——这是我们依赖的桥梁。
+//
 
 describe("pi-tui matchesKey contract", () => {
   it("backspace: matches raw \\x7f (DEL) byte (and CSI-u via matchesKey)", () => {
-    // Legacy terminals send DEL (127) for Backspace.
-    // Kitty protocol terminals send CSI-u sequences instead.
-    // matchesKey handles both transparently, so our reducers
-    // never need to compare data directly against byte literals.
+    // 传统终端用 DEL (127) 发送 Backspace。
+    // Kitty 协议终端则发送 CSI-u 序列。
+    // matchesKey 透明地处理两者，因此我们的 reducer
+    // 永远不需要直接拿 data 与字节字面量比较。
     expect(matchesKey("\x7f", Key.backspace)).toBe(true);
   });
 
@@ -48,15 +48,15 @@ describe("pi-tui matchesKey contract", () => {
   });
 
   it("symbolic names do NOT match (matchesKey expects raw bytes)", () => {
-    // Proves that matchesKey does NOT do simple string comparison.
-    // This is why our reducers must pass the raw terminal data —
-    // not symbolic names — as the first argument.
+    // 证明 matchesKey 不做简单的字符串比较。
+    // 这就是为什么 reducer 必须把原始终端数据——
+    // 而不是符号名——作为第一个参数。
     expect(matchesKey("backspace", Key.backspace)).toBe(false);
     expect(matchesKey("enter", Key.enter)).toBe(false);
   });
 });
 
-// ── Filter reducer ──────────────────────────────────────────────
+// ── 过滤 reducer ──────────────────────────────────────────────
 
 describe("createFilterReducer", () => {
   it("accumulates printable characters", () => {
@@ -122,7 +122,7 @@ describe("createFilterReducer", () => {
   it("passes through arrow keys as navigate action", () => {
     const { handleKey, getFilterText } = createFilterReducer();
     handleKey("a");
-    // Up arrow: \x1b[A, Down: \x1b[B
+    // 上箭头：\x1b[A，下箭头：\x1b[B
     expect(handleKey("\x1b[A").action).toBe("navigate");
     expect(handleKey("\x1b[B").action).toBe("navigate");
     expect(getFilterText()).toBe("a"); // unchanged
@@ -130,7 +130,7 @@ describe("createFilterReducer", () => {
 
   it("ignores non-printable non-special raw bytes", () => {
     const { handleKey, getFilterText } = createFilterReducer();
-    // NULL, SOH, STX — all < 32, single byte, ignored by reducer
+    // NULL、SOH、STX —— 都 < 32，单字节，reducer 忽略
     expect(handleKey("\x00").action).toBe("navigate");
     expect(handleKey("\x01").action).toBe("navigate");
     expect(getFilterText()).toBe("");
@@ -150,14 +150,14 @@ describe("createFilterReducer", () => {
   describe("bracketed paste", () => {
     it("extracts and appends pasted content", () => {
       const { handleKey, getFilterText } = createFilterReducer();
-      // pi wraps paste in \x1b[200~ ... \x1b[201~
+      // pi 用 \x1b[200~ ... \x1b[201~ 包裹粘贴内容
       handleKey("\x1b[200~user\x1b[201~");
       expect(getFilterText()).toBe("user");
     });
 
     it("filters out non-printable chars from paste", () => {
       const { handleKey, getFilterText } = createFilterReducer();
-      // Tab and newline in pasted content are stripped
+      // 粘贴内容中的 Tab 和换行会被剥掉
       handleKey("\x1b[200~a\tb\nc\x1b[201~");
       expect(getFilterText()).toBe("abc");
     });
@@ -178,7 +178,7 @@ describe("createFilterReducer", () => {
   });
 });
 
-// ── Password reducer ────────────────────────────────────────────
+// ── 密码 reducer ────────────────────────────────────────────
 
 describe("createPasswordReducer", () => {
   it("accumulates password characters", () => {

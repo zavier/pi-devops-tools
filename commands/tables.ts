@@ -1,5 +1,5 @@
 /**
- * /db tables — list all tables in the current database.
+ * /db tables —— 列出当前数据库的所有表。
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";

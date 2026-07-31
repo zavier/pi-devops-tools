@@ -1,8 +1,8 @@
 /**
- * Database connection configuration types and YAML loader.
+ * 数据库连接配置的类型与 YAML 加载器。
  *
- * Reads ~/.pi/database/connections.yaml — a global, user-scoped config
- * separate from the project's .pi/config.json. Supports ${ENV_VAR} placeholders.
+ * 读取 ~/.pi/database/connections.yaml —— 全局、用户级配置，
+ * 与项目的 .pi/config.json 分离。支持 ${ENV_VAR} 占位符。
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -11,7 +11,7 @@ import { load as parseYaml } from "js-yaml";
 import { DEFAULT_QUERY_LIMIT } from "./sql-policy";
 import { homedir } from "node:os";
 
-// ====== Config file types ======
+// ====== 配置文件类型 ======
 
 export interface ConnectionConfig {
   environment: string;
@@ -28,7 +28,7 @@ export interface ConnectionsFile {
   connections: Record<string, ConnectionConfig>;
 }
 
-// ====== Resolved types (after env-var substitution) ======
+// ====== 解析后类型（env 变量替换之后）========
 
 export interface ResolvedConnectionConfig {
   id: string;
@@ -42,7 +42,7 @@ export interface ResolvedConnectionConfig {
   queryLimit: number; // resolved: config value or DEFAULT_QUERY_LIMIT
 }
 
-// ====== Paths ======
+// ====== 路径 ======
 
 const DEFAULT_PATH = join(homedir(), ".pi", "database", "connections.yaml");
 
@@ -61,17 +61,16 @@ function resolveEnvVars(value: string): { resolved: string; unresolved: string[]
 
 export interface ConfigLoadResult {
   connections: ResolvedConnectionConfig[];
-  /** Warnings about skipped connections or unresolved env vars. */
+  /** 被跳过的连接或未解析的 env 变量的警告。 */
   warnings: string[];
 }
 
 /**
- * Load and resolve the connections configuration.
- * Returns empty array if the file doesn't exist (first-time setup).
- * Throws only if the file exists but is malformed.
- * Connections with unresolved env vars are not skipped — their password
- * resolves to empty string; a warning is emitted so the user knows why
- * authentication will fail when they try to connect.
+ * 加载并解析连接配置。
+ * 文件不存在时返回空数组（首次设置）。
+ * 仅当文件存在但格式错误时才抛错。
+ * env 变量未解析的连接不会被跳过——其密码解析为空字符串；
+ * 会发出警告，让用户知道连接时认证为何会失败。
  */
 export function loadConnectionsConfig(configPath?: string): ConfigLoadResult {
   const path = configPath ?? DEFAULT_PATH;
@@ -136,7 +135,7 @@ export function loadConnectionsConfig(configPath?: string): ConfigLoadResult {
   return { connections: resolved, warnings };
 }
 
-/** Path to the connections config file, for use in help messages. */
+/** 连接配置文件路径，用于帮助消息。 */
 export function getConnectionsConfigPath(configPath?: string): string {
   return configPath ?? DEFAULT_PATH;
 }

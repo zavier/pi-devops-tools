@@ -1,14 +1,14 @@
 /**
- * LLM-facing database tools.
+ * 面向 LLM 的数据库工具。
  *
- * Everything flows through DatabaseWorkspaceService → DatabaseConnectionManager
- * .executeQuery, so the read-only guard and LIMIT policy apply to the LLM
- * exactly as they do to /db query. Tool output is truncated with pi's
- * truncateHead to protect the LLM context.
+ * 一切执行都流经 DatabaseWorkspaceService → DatabaseConnectionManager
+ * .executeQuery，因此只读守卫与 LIMIT 策略对 LLM 生效，
+ * 与 /db query 完全一致。工具输出用 pi 的 truncateHead 截断
+ * 以保护 LLM 上下文。
  *
- * Query/schema tools default to the workspace selection but accept optional
- * connection/database overrides. Databases on the same MySQL instance can be
- * joined directly with `db.table` qualified names — no switching needed.
+ * 查询/schema 工具默认使用工作空间选择，但接受可选的
+ * connection/database 覆盖。同一 MySQL 实例上的数据库可以直接
+ * 用 `db.table` 限定名 JOIN——无需切换。
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -38,7 +38,7 @@ function truncate(text: string): string {
   );
 }
 
-/** Optional target override shared by db_query / db_tables. */
+/** 由 db_query / db_tables 共享的可选目标覆盖参数。 */
 const targetParams = {
   connection: Type.Optional(
     Type.String({
@@ -59,8 +59,8 @@ export function registerDbTools(
   getWorkspace: () => DatabaseWorkspaceService,
 ): void {
   /**
-   * Throws (→ isError tool result) when no database is selected and the caller
-   * didn't pass an explicit target that works without a workspace selection.
+   * 当未选择数据库且调用方未传显式目标时抛错（→ isError 工具结果），
+   * 除非显式目标本身不需要工作空间选择即可工作。
    */
   const ready = (explicitTargetOk = false): DatabaseWorkspaceService => {
     const ws = getWorkspace();
@@ -73,7 +73,7 @@ export function registerDbTools(
     return ws;
   };
 
-  // ── Loader: enables the lazily-loaded tools on demand ────────────
+  // ── Loader：按需启用懒加载工具 ────────────────────────────
   pi.registerTool({
     name: LOADER_TOOL_NAME,
     label: "DB Tools",
@@ -116,8 +116,8 @@ export function registerDbTools(
       const active = pi.getActiveTools();
       const added = matches.filter((name) => !active.includes(name));
       if (added.length > 0) {
-        // Additive only — pi records the newly available tools on this result
-        // and exposes them to the model on the next request.
+        // 仅加性——pi 会在此结果上记录新可用的工具，
+        // 并在下一次请求时暴露给模型。
         pi.setActiveTools([...new Set([...active, ...added])]);
       }
 
@@ -164,7 +164,7 @@ export function registerDbTools(
           database: result.database,
         });
       } catch {
-        /* non-fatal */
+        /* 非致命 */
       }
       const text = [
         `Connection: ${result.connectionId}`,
@@ -198,8 +198,8 @@ export function registerDbTools(
       "Never read the connections config file directly " +
       "(e.g. ~/.pi/database/connections.yaml) — it contains credentials; this tool returns " +
       "the same information redacted.",
-    // Lazily loaded via db_tools — no promptSnippet/promptGuidelines so
-    // activation does not rebuild the system prompt (see Dynamic Tool Loading).
+    // 经 db_tools 懒加载——不带 promptSnippet/promptGuidelines，
+    // 激活时不会重建 system prompt（见 Dynamic Tool Loading）。
     parameters: Type.Object({
       connection: Type.Optional(
         Type.String({ description: "Connection ID. Defaults to the current connection." }),
@@ -252,7 +252,7 @@ export function registerDbTools(
         connectionId: params.connection,
         database: params.database,
       });
-      // Unified details shape — the two modes differ only in which field is set.
+      // 统一 details 形状——两种模式仅设置不同字段。
       const details: {
         connection: string;
         database: string;
@@ -294,7 +294,7 @@ export function registerDbTools(
       "database. Use these to write JOINs yourself in db_query, or to plan batched " +
       "queries when a JOIN is not possible (e.g. tables on different connections). " +
       "Defaults to the currently selected database.",
-    // Lazily loaded via db_tools — no promptSnippet/promptGuidelines (see above).
+    // 经 db_tools 懒加载——不带 promptSnippet/promptGuidelines（见上）。
     parameters: Type.Object({
       table: Type.Optional(Type.String({ description: "Only relations involving this table" })),
       database: Type.Optional(
@@ -346,7 +346,7 @@ export function registerDbTools(
       ...targetParams,
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      // 1. Validate the SQL is a DML mutation
+      // 1. 校验 SQL 是否为 DML 变更
       let validation: ReturnType<typeof prepareMutationQuery>;
       try {
         validation = prepareMutationQuery(params.sql);
@@ -358,14 +358,14 @@ export function registerDbTools(
         };
       }
 
-      // 2. Resolve target
+      // 2. 解析目标
       const ws = ready(!!(params.connection && params.database));
       const target = ws.resolveTarget({
         connectionId: params.connection,
         database: params.database,
       });
 
-      // 3. Show confirmation dialog
+      // 3. 显示确认对话框
       const confirmed = await showMutationConfirm(ctx, {
         sql: validation.sql,
         operation: validation.operation,
@@ -386,7 +386,7 @@ export function registerDbTools(
         };
       }
 
-      // 4. Execute
+      // 4. 执行
       try {
         const result = await ws.executeMutation(validation.sql, {
           connectionId: params.connection,
@@ -432,7 +432,7 @@ export function registerDbTools(
       "repeatedly on the same column pair). " +
       "action='delete': remove a relationship by exact column match. " +
       "Use db_list_relations first to see what already exists.",
-    // Lazily loaded via db_tools — no promptSnippet/promptGuidelines (see above).
+    // 经 db_tools 懒加载——不带 promptSnippet/promptGuidelines（见上）。
     parameters: Type.Object({
       action: StringEnum(["register", "delete"] as const, {
         description: "register: create or update a relationship. delete: remove a relationship.",

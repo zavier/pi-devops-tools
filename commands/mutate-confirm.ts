@@ -1,9 +1,9 @@
 /**
- * Mutation confirmation dialog — overlay UI shown when the LLM calls db_mutate.
+ * 变更确认对话框 —— LLM 调用 db_mutate 时显示的 overlay UI。
  *
- * Displays the SQL with color-coded operation type, connection/database context,
- * and WHERE-missing warnings. User presses Enter to confirm or Esc to cancel.
- * In non-TUI modes falls back to ctx.ui.confirm().
+ * 显示带颜色编码的操作类型、连接/数据库上下文和缺少 WHERE 的警告。
+ * 用户按 Enter 确认或 Esc 取消。非 TUI 模式回退到 ctx.ui.confirm()。
+ *
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -30,11 +30,11 @@ const OP_STYLE: Record<string, { icon: string; color: StyleColor }> = {
 const DEFAULT_WARNING = "该操作将永久修改数据，无法撤销";
 
 /**
- * Show the mutation confirmation dialog and return true if the user confirmed.
+ * 显示变更确认对话框，用户确认时返回 true。
  *
- * In TUI mode this renders an overlay with the SQL in a bordered box,
- * color-coded by operation type. In non-TUI modes it falls back to a plain
- * confirm() dialog.
+ * TUI 模式下渲染带边框框的 overlay，SQL 按操作类型颜色编码。
+ * 非 TUI 模式回退为普通 confirm() 对话框。
+ *
  */
 export async function showMutationConfirm(
   ctx: ExtensionContext,
@@ -57,15 +57,15 @@ export async function showMutationConfirm(
     (tui, theme, _kb, done) => {
       const container = new Container();
 
-      // ── Top border ──
+      // ── 上边框 ──
       container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
       container.addChild(new Spacer(0));
 
-      // ── Title ──
+      // ── 标题 ──
       container.addChild(new Text(theme.fg("accent", theme.bold("  ⚠️ 数据修改确认")), 2, 0));
       container.addChild(new Spacer(0));
 
-      // ── Meta info ──
+      // ── 元信息 ──
       const opLabel = `${style.icon} ${params.operation}`;
       container.addChild(new Text(`  操作类型：  ${theme.fg(style.color, opLabel)}`, 2, 0));
       container.addChild(
@@ -73,15 +73,15 @@ export async function showMutationConfirm(
       );
       container.addChild(new Spacer(0));
 
-      // ── SQL box ──
+      // ── SQL 框 ──
       const sqlLines = params.sql.split("\n");
       const maxSqlLen = Math.max(...sqlLines.map((l) => l.length));
       const boxInnerWidth = Math.min(maxSqlLen + 2, 78);
 
-      // Top edge
+      // 上边缘
       container.addChild(new Text(theme.fg(style.color, `  ┌${"─".repeat(boxInnerWidth)}┐`), 2, 0));
 
-      // Empty padding line
+      // 空填充行
       container.addChild(
         new Text(
           `${theme.fg(style.color, "  │")}${" ".repeat(boxInnerWidth)}${theme.fg(style.color, "│")}`,
@@ -90,7 +90,7 @@ export async function showMutationConfirm(
         ),
       );
 
-      // SQL content
+      // SQL 内容
       for (const line of sqlLines) {
         const trimmed = line.trim();
         const maxContent = boxInnerWidth - 2;
@@ -107,7 +107,7 @@ export async function showMutationConfirm(
         );
       }
 
-      // Empty padding line
+      // 空填充行
       container.addChild(
         new Text(
           `${theme.fg(style.color, "  │")}${" ".repeat(boxInnerWidth)}${theme.fg(style.color, "│")}`,
@@ -116,12 +116,12 @@ export async function showMutationConfirm(
         ),
       );
 
-      // Bottom edge
+      // 下边缘
       container.addChild(new Text(theme.fg(style.color, `  └${"─".repeat(boxInnerWidth)}┘`), 2, 0));
 
       container.addChild(new Spacer(0));
 
-      // ── Warning ──
+      // ── 警告 ──
       container.addChild(
         new Text(
           params.warning
@@ -134,7 +134,7 @@ export async function showMutationConfirm(
 
       container.addChild(new Spacer(0));
 
-      // ── Key hints ──
+      // ── 按键提示 ──
       container.addChild(
         new Text(
           `  ${theme.fg("accent", "Enter 确认执行")}    ${theme.fg("dim", "Esc 取消")}`,
@@ -145,7 +145,7 @@ export async function showMutationConfirm(
 
       container.addChild(new Spacer(0));
 
-      // ── Bottom border ──
+      // ── 下边框 ──
       container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
       return {
@@ -157,7 +157,7 @@ export async function showMutationConfirm(
           } else if (matchesKey(data, Key.escape)) {
             done(false);
           }
-          // Ignore all other input
+          // 忽略其他所有输入
         },
       };
     },

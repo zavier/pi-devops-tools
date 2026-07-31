@@ -1,5 +1,5 @@
 /**
- * Tests for formatting/result-table.ts — pure functions, no dependencies.
+ * formatting/result-table.ts 的测试——纯函数，无依赖。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -10,7 +10,7 @@ import {
   formatTableResult,
 } from "../formatting/result-table";
 
-// ====== Shared test data ======
+// ====== 共享测试数据 ======
 
 const SINGLE_ROW = {
   columns: ["id", "name", "email"],
@@ -138,14 +138,14 @@ describe("layoutColumns", () => {
   });
 
   it("内容超出预算时收缩最宽列", () => {
-    // 3 cols: ideal [40, 40, 40], budget 100
-    // overhead = 3*3+1 = 10, available = 90, total ideal = 120 > 90
-    // Should shrink to fit within 90
+    // 3 列：理想宽度 [40, 40, 40]，预算 100
+    // 开销 = 3*3+1 = 10，可用 = 90，理想总和 120 > 90
+    // 应收缩以适配 90
     const result = layoutColumns([40, 40, 40], 100);
     expect(result).toHaveLength(3);
     const total = result.reduce((a, b) => a + b, 0);
     expect(total).toBeLessThanOrEqual(90);
-    // All should be ≥ 6 (min)
+    // 全部应 ≥ 6（最小值）
     for (const w of result) expect(w).toBeGreaterThanOrEqual(6);
   });
 
@@ -155,18 +155,18 @@ describe("layoutColumns", () => {
   });
 
   it("内容正好填满预算不收缩", () => {
-    // ideal=[10,20,30] = 60, overhead=10, total=70, budget=70
+    // ideal=[10,20,30] = 60，开销=10，总计=70，预算=70
     const result = layoutColumns([10, 20, 30], 70);
     expect(result).toEqual([10, 20, 30]);
   });
 
   it("预算太紧时按比例压缩", () => {
-    // 3 cols at min 6: minTotal=18, overhead=10, need budget ≥ 28 for mins.
-    // Budget 20 → available=10, scale=10/18≈0.55, widths≈[3,3,3]
+    // 3 列最小值 6：minTotal=18，开销=10，最小值需要预算 ≥ 28。
+    // 预算 20 → 可用=10，比例=10/18≈0.55，宽度≈[3,3,3]
     const result = layoutColumns([40, 40, 40], 20);
     expect(result).toHaveLength(3);
     const total = result.reduce((a, b) => a + b, 0);
-    // overhead = 10, available = 10, proportional from min 6 each
+    // 开销=10，可用=10，从每列最小值 6 按比例压缩
     expect(total).toBeLessThanOrEqual(10);
   });
 });
@@ -180,7 +180,7 @@ describe("formatTableCompact", () => {
 
   it("使用无填充表格", () => {
     const result = formatTableCompact(SINGLE_ROW);
-    // Unpadded: cells not padded, no extra spaces
+    // 无填充：单元格不补空格，无额外空格
     expect(result).toContain("| id | name | email |");
     expect(result).toContain("| --- | --- | --- |");
     expect(result).toContain("| 1 | Alice | alice@example.com |");
@@ -244,7 +244,7 @@ describe("formatTableCompact", () => {
   });
 });
 
-// ====== formatTableDisplay (adaptive width) ======
+// ====== formatTableDisplay（自适应宽度）======
 
 describe("formatTableDisplay", () => {
   it("空结果返回中文提示", () => {
@@ -286,7 +286,7 @@ describe("formatTableDisplay", () => {
       return row;
     });
     const result = formatTableDisplay({ columns: cols, rows }, 55);
-    // 12 cols × 15 rows: horizontal won't fit → transposed (max 10 rows) → vertical
+    // 12 列 × 15 行：横向放不下 → 转置（最多 10 行）→ 纵向
     expect(result).toContain("─── Row");
     expect(result).toContain("col_0");
   });
@@ -299,8 +299,8 @@ describe("formatTableDisplay", () => {
       return row;
     });
     const result = formatTableDisplay({ columns: cols, rows }, 45);
-    // 9 cols × 5 char (headers/content) = narrow terminal won't fit horizontal
-    // 20 rows > 10 → vertical
+    // 9 列 × 5 字符（表头/内容）：窄终端放不下横向
+    // 20 行 > 10 → 纵向
     expect(result).toContain("─── Row");
     expect((result.match(/─── Row/g) || []).length).toBe(5);
     expect(result).toContain("… 还有");
@@ -328,12 +328,12 @@ describe("formatTableDisplay", () => {
     const cols = Array.from({ length: 12 }, (_, i) => `col_${i}`);
     const rows = [Object.fromEntries(cols.map((c, i) => [c, c === "col_0" ? null : `v${i}`]))];
     const result = formatTableDisplay({ columns: cols, rows }, 55);
-    // 12 cols single row won't fit horizontally → transposed. Formatter shouldn't crash.
+    // 12 列单行放不下横向 → 转置。格式化器不应崩溃。
     expect(result).not.toBe("（空结果）");
   });
 });
 
-// ====== formatTableResult (backward compat alias) ======
+// ====== formatTableResult（向后兼容别名）======
 
 describe("formatTableResult", () => {
   it("等价于 formatTableDisplay(120)", () => {
@@ -343,7 +343,7 @@ describe("formatTableResult", () => {
   });
 
   it("超多列在 120 宽度下走水平布局", () => {
-    // WIDE_DATA: 12 narrow cols fit in 120 budget
+    // WIDE_DATA：12 个窄列适配 120 预算
     const result = formatTableResult(WIDE_DATA);
     expect(result).toContain("---"); // horizontal
   });

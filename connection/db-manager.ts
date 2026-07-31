@@ -1,10 +1,9 @@
 /**
- * Database Connection Manager for the /db workspace.
+ * /db 工作空间的数据库连接管理器。
  *
- * Manages mysql2 connection pools keyed by connection ID, and is the single
- * query execution point: every query passes the read-only guard and LIMIT
- * policy (see sql-policy.ts) and runs on a dedicated checked-out connection
- * so USE and the query can't be split across pool connections.
+ * 管理按连接 ID 键控的 mysql2 连接池，是唯一的查询执行点：
+ * 每条查询都经过只读守卫和 LIMIT 策略（见 sql-policy.ts），并在检出的
+ * 专用连接上执行，这样 USE 与查询不会散落在连接池的不同连接上。
  */
 
 import mysql, { type Pool, type RowDataPacket, type ResultSetHeader } from "mysql2/promise";
@@ -38,20 +37,19 @@ export class DatabaseConnectionManager {
     this.configMap = new Map(connections.map((c) => [c.id, c]));
   }
 
-  /** Get the config for a connection ID. */
+  /** 获取某连接 ID 的配置。 */
   getConfig(id: string): ResolvedConnectionConfig | undefined {
     return this.configMap.get(id);
   }
 
-  /** List all configured connection IDs. */
+  /** 列出所有已配置的连接 ID。 */
   getConnectionIds(): string[] {
     return [...this.configMap.keys()];
   }
 
   /**
-   * Get (or create) a mysql2 pool for a connection ID.
-   * The pool connects without specifying a default database —
-   * the workspace switches databases dynamically via USE.
+   * 获取（或创建）某连接 ID 的 mysql2 连接池。
+   * 连接池连接时不指定默认数据库——工作空间通过 USE 动态切换数据库。
    */
   getPool(connectionId: string): Pool {
     const existing = this.pools.get(connectionId);
@@ -81,8 +79,8 @@ export class DatabaseConnectionManager {
   }
 
   /**
-   * List databases accessible on a connection.
-   * Connects without a default database and runs SHOW DATABASES.
+   * 列出某连接上可访问的数据库。
+   * 不带默认数据库连接，执行 SHOW DATABASES。
    */
   async getDatabases(connectionId: string): Promise<string[]> {
     const pool = this.getPool(connectionId);
@@ -91,7 +89,7 @@ export class DatabaseConnectionManager {
   }
 
   /**
-   * List tables in the current database context.
+   * 列出当前数据库上下文中的表。
    */
   async getTables(connectionId: string, database: string): Promise<string[]> {
     const pool = this.getPool(connectionId);
@@ -103,7 +101,7 @@ export class DatabaseConnectionManager {
   }
 
   /**
-   * Get column definitions for a table.
+   * 获取表的列定义。
    */
   async getTableSchema(
     connectionId: string,
@@ -132,11 +130,10 @@ export class DatabaseConnectionManager {
   }
 
   /**
-   * Execute a read-only SQL query against a specific database.
+   * 对指定数据库执行只读 SQL 查询。
    *
-   * The SQL passes the read-only guard and gets a LIMIT appended if it's an
-   * unbounded SELECT. USE only affects the connection it runs on, so we check
-   * out a dedicated connection to keep the switch and the query together.
+   * SQL 经过只读守卫，若是无界 SELECT 则自动追加 LIMIT。USE 只影响其执行的
+   * 连接，因此检出专用连接，保证切换与查询不分离。
    */
   async executeQuery(
     connectionId: string,
@@ -168,8 +165,8 @@ export class DatabaseConnectionManager {
   }
 
   /**
-   * Discover foreign key relationships from information_schema.
-   * Returns ColumnRelation[] suitable for merging into RelationGraph.
+   * 从 information_schema 发现外键关系。
+   * 返回适合合并进 RelationGraph 的 ColumnRelation[]。
    */
   async discoverForeignKeys(
     connectionId: string,
@@ -203,9 +200,9 @@ export class DatabaseConnectionManager {
   }
 
   /**
-   * Execute a DML mutation (INSERT/UPDATE/DELETE/REPLACE).
-   * No read-only guard; no LIMIT injection.
-   * Returns affectedRows from MySQL's ResultSetHeader.
+   * 执行 DML 变更（INSERT/UPDATE/DELETE/REPLACE）。
+   * 无只读守卫；无 LIMIT 注入。
+   * 从 MySQL 的 ResultSetHeader 返回受影响行数。
    */
   async executeMutation(
     connectionId: string,
@@ -230,7 +227,7 @@ export class DatabaseConnectionManager {
     }
   }
 
-  /** Close all pools. */
+  /** 关闭所有连接池。 */
   destroy(): void {
     for (const [, pool] of this.pools) {
       pool.end().catch(() => {});

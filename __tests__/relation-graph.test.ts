@@ -17,11 +17,11 @@ describe("RelationGraph", () => {
 
     graph.upsert(src, tgt, "MANY_TO_ONE");
 
-    // Forward direction
+    // 前向
     const forward = graph.getDirectRelations("db1", "t_order");
     expect(forward.size).toBe(1);
 
-    // Reverse direction (bidirectional)
+    // 反向（双向）
     const reverse = graph.getDirectRelations("db2", "t_user");
     expect(reverse.size).toBe(1);
   });
@@ -59,7 +59,7 @@ describe("RelationGraph", () => {
     expect(graph.removeById(row.id)).toBe(true);
     expect(graph.list("a").length).toBe(0);
 
-    // Second delete is a no-op
+    // 第二次删除是空操作
     expect(graph.removeById(row.id)).toBe(false);
   });
 
@@ -71,7 +71,7 @@ describe("RelationGraph", () => {
     graph.upsert(src, tgt, "ONE_TO_ONE");
     graph.upsert(src, tgt, "MANY_TO_ONE");
 
-    // Only one relation, updated to MANY_TO_ONE
+    // 只有一条关系，更新为 MANY_TO_ONE
     const relations = graph.list("a", "t1");
     expect(relations.length).toBe(1);
     expect(relations[0].relation_type).toBe("MANY_TO_ONE");
@@ -86,7 +86,7 @@ describe("RelationGraph", () => {
     graph.upsert(src, tgt, "MANY_TO_ONE");
     graph.upsert(src2, tgt, "MANY_TO_ONE");
 
-    // Condition is part of the unique key — two separate relations
+    // condition 是唯一键的一部分——两条独立的关系
     const relations = graph.list("a", "t1");
     expect(relations.length).toBe(2);
   });
@@ -110,14 +110,14 @@ describe("RelationGraph", () => {
   });
 });
 
-// ====== bfsQuery (via stub QueryFn) ======
+// ====== bfsQuery（经 stub QueryFn）======
 
 interface QueryCall {
   sql: string;
   params?: unknown[];
 }
 
-/** Stub QueryFn: routes "schema.table" prefixes to canned rows, records calls. */
+/** stub QueryFn：把 "schema.table" 前缀路由到固定行，并记录调用。 */
 function stubQuery(routes: Record<string, Record<string, any>[]>) {
   const calls: QueryCall[] = [];
   const fn: QueryFn = async (sql, params) => {
@@ -137,8 +137,8 @@ describe("RelationGraph.bfsQuery", () => {
       { schema: "db1", table: "t_user", column: "id" },
     );
 
-    // t_user rows intentionally lack `id` — otherwise the bidirectional graph
-    // would traverse straight back to t_order.
+    // t_user 行故意没有 `id`——否则双向图
+    // 会直接遍历回 t_order。
     const { fn, calls } = stubQuery({ "db1.t_user": [{ name: "ada" }] });
     const results = await graph.bfsQuery(fn, "db1", "t_order", [{ id: 1, user_id: 7 }], 2, 10);
 
@@ -155,8 +155,8 @@ describe("RelationGraph.bfsQuery", () => {
 
   it("appends the relation condition when traversing towards the conditioned side", async () => {
     const graph = createGraph();
-    // condition lives on the source column; it applies when BFS traverses
-    // from the referenced side back towards the source.
+    // condition 在源列上；当 BFS 从被引用侧
+    // 往回遍历到源侧时生效。
     graph.upsert(
       { schema: "db1", table: "t_order", column: "user_id", condition: "status=1" },
       { schema: "db1", table: "t_user", column: "id" },
@@ -196,18 +196,18 @@ describe("RelationGraph.bfsQuery", () => {
       { schema: "db1", table: "c", column: "id" },
     );
 
-    // b rows intentionally lack `id` so the bidirectional edge back to a
-    // has no values to follow.
+    // b 行故意没有 `id`，使回到 a 的双向边
+    // 没有可跟随的值。
     const { fn } = stubQuery({
       "db1.b": [{ c_id: 2 }],
       "db1.c": [{ id: 2 }],
     });
 
-    // maxDepth 1: only the first hop
+    // maxDepth 1：只有第一跳
     const shallow = await graph.bfsQuery(fn, "db1", "a", [{ b_id: 1 }], 1, 10);
     expect(shallow.map((r) => r.table)).toEqual(["b"]);
 
-    // maxDepth 2: reaches c
+    // maxDepth 2：到达 c
     const deep = await graph.bfsQuery(fn, "db1", "a", [{ b_id: 1 }], 2, 10);
     expect(deep.map((r) => r.table)).toEqual(["b", "c"]);
     expect(deep[1].joinPath).toBe("a.b_id -> b.id -> b.c_id -> c.id");
@@ -215,7 +215,7 @@ describe("RelationGraph.bfsQuery", () => {
 
   it("does not loop on cyclic relations", async () => {
     const graph = createGraph();
-    // a.b_id -> b.id and the graph is bidirectional, so b also points back at a
+    // a.b_id -> b.id 且图是双向的，所以 b 也指回 a
     graph.upsert(
       { schema: "db1", table: "a", column: "b_id" },
       { schema: "db1", table: "b", column: "id" },
@@ -238,7 +238,7 @@ describe("RelationGraph.bfsQuery", () => {
       { schema: "db2", table: "t_user", column: "id" },
     );
 
-    // t_user rows intentionally lack `id` (see first bfsQuery test).
+    // t_user 行故意没有 `id`（见第一个 bfsQuery 测试）。
     const { fn, calls } = stubQuery({ "db2.t_user": [{ name: "ada" }] });
     const results = await graph.bfsQuery(fn, "db1", "t_order", [{ user_id: 7 }], 2, 10);
 

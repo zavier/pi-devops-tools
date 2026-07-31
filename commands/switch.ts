@@ -1,5 +1,5 @@
 /**
- * /db switch — environment → connection → database selection.
+ * /db switch —— 环境 → 连接 → 数据库选择。
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -45,7 +45,7 @@ export async function showWorkspacePanel(
     }
   }
 
-  // Show config warnings (e.g. unresolved env vars)
+  // 显示配置警告（如未解析的 env 变量）
   const warnings = ws.getConfigWarnings();
   if (warnings.length > 0) {
     lines.push("");
@@ -65,7 +65,7 @@ export async function showWorkspacePanel(
   lines.push("  /db favorite        收藏的查询模板");
   lines.push("  /db relations       表关联关系管理");
 
-  // Visible panel for the user (raw-text renderer).
+  // 用户可见的面板（纯文本渲染器）。
   if (pi) {
     pi.sendMessage(
       {
@@ -77,9 +77,9 @@ export async function showWorkspacePanel(
     );
   }
 
-  // Silent hint for the LLM when no connections are configured.
-  // display: false keeps it out of the chat; triggerTurn makes the AI
-  // proactively offer to help set up the first connection.
+  // 未配置连接时给 LLM 的静默提示。
+  // display: false 让它不进聊天；triggerTurn 让 AI
+  // 主动提议帮助建立第一个连接。
   if (!ws.isConfigured && pi) {
     pi.sendMessage(
       {
@@ -97,13 +97,13 @@ export async function handleSwitch(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
 ): Promise<void> {
-  // If no connections are loaded yet (e.g. config file was just created by AI),
-  // hot-reload from disk so the user doesn't need /reload.
+  // 如果尚未加载任何连接（例如 AI 刚创建了配置文件），
+  // 从磁盘热重载，用户无需 /reload。
   if (!ws.isConfigured) {
     ws.reloadConfig();
   }
 
-  // --- Step 1: Pick environment ---
+  // --- 第 1 步：选择环境 ---
   const environments = ws.getEnvironments();
   if (environments.length === 0) {
     ctx.ui.notify(
@@ -124,7 +124,7 @@ export async function handleSwitch(
 
   const env = environments[envLabels.indexOf(envChoice)];
 
-  // --- Step 2: Pick connection (if multiple in same env) ---
+  // --- 第 2 步：选择连接（同环境有多个时）---
   let connectionId: string;
   const connsInEnv = ws.getConnectionIdsForEnv(env);
 
@@ -136,7 +136,7 @@ export async function handleSwitch(
     connectionId = connChoice;
   }
 
-  // --- Step 3: Pick database ---
+  // --- 第 3 步：选择数据库 ---
   const conn = ws.getConnectionConfig(connectionId);
   const defaultDb = conn?.defaultDatabase;
 
@@ -172,14 +172,14 @@ export async function handleSwitch(
     database = choice;
   }
 
-  // --- Step 4: Persist ---
+  // --- 第 4 步：持久化 ---
   ws.switchTo(env, connectionId, database);
 
   ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
   ctx.ui.setWidget(STATUS_KEY, [`🗄 ${env}/${database}  @${connectionId}`]);
 
-  // Tell the LLM which database is active so it doesn't have to guess.
-  // display: false avoids cluttering the chat with a redundant message.
+  // 告知 LLM 当前激活的数据库，避免它猜测。
+  // display: false 避免冗余消息污染聊天。
   pi.sendMessage(
     {
       customType: "db-active-db",

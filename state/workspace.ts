@@ -1,10 +1,9 @@
 /**
- * DatabaseWorkspaceService — the single module behind the /db command.
+ * DatabaseWorkspaceService —— /db 命令背后的唯一模块。
  *
- * Absorbs WorkspaceContext (state, switching, schema cache) and QueryRunner
- * (query execution, history, lastSql) into one deep module. All delegates
- * are private — commands cross the external seam only through the methods
- * listed below.
+ * 将 WorkspaceContext（状态、切换、schema 缓存）和 QueryRunner
+ * （查询执行、历史、lastSql）吸收进一个深度模块。所有委托都是私有字段——
+ * 命令只能通过下面列出的方法穿越外部接缝。
  */
 
 import { load as parseYaml, dump } from "js-yaml";
@@ -28,7 +27,7 @@ import type { RelationRow } from "../relation/store";
 import type { RelatedResult, SqlRow } from "../types";
 import { StateStore } from "./state-store";
 
-// ====== Internal types ======
+// ====== 内部类型 ======
 
 interface WorkspaceState {
   environment: string;
@@ -36,13 +35,13 @@ interface WorkspaceState {
   database: string;
 }
 
-/** Effective target of a call: defaults to the workspace selection, overridable per call. */
+/** 调用的有效目标：默认工作空间选择，可逐调用覆盖。 */
 export interface QueryTarget {
   connectionId: string;
   database: string;
 }
 
-// ====== Persistence helpers ======
+// ====== 持久化辅助 ======
 
 function loadWorkspace(filePath: string): WorkspaceState | null {
   try {
@@ -69,10 +68,10 @@ function saveWorkspace(filePath: string, state: WorkspaceState): void {
   writeFileSync(filePath, JSON.stringify(state, null, 2));
 }
 
-// ====== Service ======
+// ====== 服务 ======
 
 export class DatabaseWorkspaceService {
-  // ── Private delegates ──────────────────────────────────────────
+  // ── 私有委托 ──────────────────────────────────────────
 
   private store: StateStore;
   private connections: ResolvedConnectionConfig[];
@@ -82,12 +81,12 @@ export class DatabaseWorkspaceService {
   private favorites: FavoriteStore;
   private relationGraph: RelationGraph;
 
-  // ── Internal state ─────────────────────────────────────────────
+  // ── 内部状态 ─────────────────────────────────────────────
 
   current: WorkspaceState | null;
   private _lastSql: string | null = null;
 
-  // ── Constructor ────────────────────────────────────────────────
+  // ── 构造函数 ────────────────────────────────────────────────
 
   constructor(state?: StateStore) {
     this.store = state ?? new StateStore();
@@ -101,13 +100,12 @@ export class DatabaseWorkspaceService {
     this.current = loadWorkspace(this.store.workspaceFile);
   }
 
-  // ── Config reload ────────────────────────────────────────────
+  // ── 配置重载 ────────────────────────────────────────────
 
   /**
-   * Reload connections config from disk. Useful after the user (or AI on
-   * their behalf) has created or edited connections.yaml — no /reload
-   * needed. The old connection manager is destroyed first so its pools
-   * don't leak; new pools are created lazily on first use.
+   * 从磁盘重新加载连接配置。用户（或代表用户的 AI）创建或编辑了
+   * connections.yaml 后有用——无需 /reload。先销毁旧连接管理器避免连接池
+   * 泄漏；新连接池在首次使用时懒创建。
    */
   reloadConfig(): void {
     const result = loadConnectionsConfig(this.store.connectionsFile);
@@ -118,8 +116,8 @@ export class DatabaseWorkspaceService {
   }
 
   /**
-   * Add a new connection to connections.yaml and hot-reload.
-   * Creates the file and parent directories if they don't exist.
+   * 向 connections.yaml 添加新连接并热重载。
+   * 文件或父目录不存在时自动创建。
    */
   createConnection(
     env: string,
@@ -137,7 +135,7 @@ export class DatabaseWorkspaceService {
     const filePath = this.store.connectionsFile;
     const dir = join(filePath, "..");
 
-    // Read existing or start fresh.
+    // 读取现有内容，或从零开始。
     let data: Record<string, any> = { connections: {} };
     if (existsSync(filePath)) {
       const raw = readFileSync(filePath, "utf-8");
@@ -149,7 +147,7 @@ export class DatabaseWorkspaceService {
       }
     }
 
-    // Build the connection entry.
+    // 构建连接条目。
     const entry: Record<string, any> = {
       environment: cfg.environment,
       type: cfg.type,
@@ -167,11 +165,11 @@ export class DatabaseWorkspaceService {
     mkdirSync(dir, { recursive: true });
     writeFileSync(filePath, dump(data), "utf-8");
 
-    // Hot-reload so the new connection is immediately available.
+    // 热重载，使新连接立即可用。
     this.reloadConfig();
   }
 
-  // ── State checks ───────────────────────────────────────────────
+  // ── 状态检查 ───────────────────────────────────────────────
 
   get isReady(): boolean {
     return this.current !== null;
@@ -200,7 +198,7 @@ export class DatabaseWorkspaceService {
     return this._lastSql;
   }
 
-  // ── Environment / connection lookup ────────────────────────────
+  // ── 环境 / 连接查找 ────────────────────────────────────────────
 
   getEnvironments(): string[] {
     return [...new Set(this.connections.map((c) => c.environment))].sort();
@@ -218,26 +216,25 @@ export class DatabaseWorkspaceService {
     return this.connections.find((c) => c.id === this.current!.connectionId);
   }
 
-  /** Look up a connection config by ID — works before switchTo has been called. */
+  /** 按 ID 查找连接配置——在 switchTo 之前也可用。 */
   getConnectionConfig(connectionId: string): ResolvedConnectionConfig | undefined {
     return this.connections.find((c) => c.id === connectionId);
   }
 
-  // ── Switch ─────────────────────────────────────────────────────
+  // ── 切换 ─────────────────────────────────────────────────────
 
   switchTo(environment: string, connectionId: string, database: string): void {
     this.current = { environment, connectionId, database };
     saveWorkspace(this.store.workspaceFile, this.current);
   }
 
-  // ── Target resolution ──────────────────────────────────────────
+  // ── 目标解析 ──────────────────────────────────────────────────
 
   /**
-   * Resolve which connection + database a call should hit.
-   * Defaults to the workspace selection; an explicit connectionId without a
-   * database falls back to that connection's defaultDatabase. A database
-   * alone targets another database on the current connection — same-instance
-   * cross-db queries work natively in MySQL via `db.table` qualified names.
+   * 解析一次调用应命中的连接 + 数据库。
+   * 默认工作空间选择；显式 connectionId 不带 database 时回退到该连接的
+   * defaultDatabase。单独传 database 时命中当前连接上的另一个库——同一实例
+   * 的跨库查询在 MySQL 中可原生用 `db.table` 限定名。
    */
   resolveTarget(opts?: { connectionId?: string; database?: string }): QueryTarget {
     const connectionId = opts?.connectionId ?? this.current?.connectionId;
@@ -262,7 +259,7 @@ export class DatabaseWorkspaceService {
     return { connectionId, database };
   }
 
-  /** List configured connections (id / environment / defaultDatabase) for discovery. */
+  /** 列出已配置连接（id / environment / defaultDatabase），用于发现。 */
   listConnections(): Array<{ id: string; environment: string; defaultDatabase?: string }> {
     return this.connections.map((c) => ({
       id: c.id,
@@ -271,7 +268,7 @@ export class DatabaseWorkspaceService {
     }));
   }
 
-  // ── Databases (always live) ────────────────────────────────────
+  // ── 数据库（始终实时）───────────────────────────────────────
 
   async getDatabases(connectionId?: string): Promise<string[]> {
     const id = connectionId ?? this.current?.connectionId;
@@ -279,14 +276,14 @@ export class DatabaseWorkspaceService {
     return this.manager.getDatabases(id);
   }
 
-  // ── Tables (always live) ───────────────────────────────────────
+  // ── 表（始终实时）──────────────────────────────────────────
 
   async getTables(opts?: { connectionId?: string; database?: string }): Promise<string[]> {
     const target = this.resolveTarget(opts);
     return this.manager.getTables(target.connectionId, target.database);
   }
 
-  // ── Table schema (always live) ─────────────────────────────────
+  // ── 表结构（始终实时）────────────────────────────────────────
 
   async getTableSchema(
     table: string,
@@ -296,7 +293,7 @@ export class DatabaseWorkspaceService {
     return this.manager.getTableSchema(target.connectionId, target.database, table);
   }
 
-  // ── Query ──────────────────────────────────────────────────────
+  // ── 查询 ──────────────────────────────────────────────────────
 
   async executeQuery(
     sql: string,
@@ -345,18 +342,18 @@ export class DatabaseWorkspaceService {
           relatedLimit,
         );
       } catch {
-        // Non-fatal: if relation query fails, still return primary results
+        // 非致命：关联查询失败时仍返回主结果
       }
     }
 
     return { ...result, related };
   }
 
-  // ── Mutation ───────────────────────────────────────────────────
+  // ── 变更 ───────────────────────────────────────────────────
 
   /**
-   * Execute a data mutation (INSERT/UPDATE/DELETE/REPLACE).
-   * Bypasses the read-only guard — callers must enforce their own approval gate.
+   * 执行数据变更（INSERT/UPDATE/DELETE/REPLACE）。
+   * 绕过只读守卫——调用方必须自行落实批准门。
    */
   async executeMutation(
     sql: string,
@@ -374,7 +371,7 @@ export class DatabaseWorkspaceService {
     return { ...result, connectionId: target.connectionId, database: target.database };
   }
 
-  // ── History ────────────────────────────────────────────────────
+  // ── 历史 ────────────────────────────────────────────────────
 
   saveHistory(sql: string, rowCount: number, elapsed: string, target?: QueryTarget): HistoryEntry {
     const t =
@@ -412,7 +409,7 @@ export class DatabaseWorkspaceService {
     return this.history.delete(id);
   }
 
-  // ── Favorites ──────────────────────────────────────────────────
+  // ── 收藏 ──────────────────────────────────────────────────
 
   saveFavorite(name: string, sql: string, description?: string): FavoriteEntry {
     return this.favorites.save({
@@ -434,7 +431,7 @@ export class DatabaseWorkspaceService {
     return this.favorites.delete(id);
   }
 
-  // ── Relations ──────────────────────────────────────────────────
+  // ── 关系 ──────────────────────────────────────────────────
 
   listRelations(table?: string, database?: string): RelationRow[] {
     const schema = database ?? this.current?.database;
@@ -483,7 +480,7 @@ export class DatabaseWorkspaceService {
     return this.relationGraph.mergeForeignKeys(fkRelations);
   }
 
-  // ── Lifecycle ──────────────────────────────────────────────────
+  // ── 生命周期 ──────────────────────────────────────────────────
 
   destroy(): void {
     this.manager.destroy();

@@ -1,15 +1,15 @@
 /**
- * SQL Policy — read-only guard and LIMIT injection for the workspace executor.
+ * SQL 策略 —— 工作空间执行器的只读守卫与 LIMIT 注入。
  *
- * Pure functions, no DB dependency. Single home of:
- * - READONLY_SQL_RE — which statements the workspace allows
- * - prepareReadOnlyQuery — validate + append LIMIT to unbounded SELECTs
+ * 纯函数，无数据库依赖。是以下内容的唯一归属：
+ * - READONLY_SQL_RE —— 工作空间允许的语句
+ * - prepareReadOnlyQuery —— 校验 + 给无界 SELECT 追加 LIMIT
  */
 
-/** Statements the workspace allows. `\b` matters: rejects "SELECTOR" etc. */
+/** 工作空间允许的语句。`\b` 很关键：拒绝 "SELECTOR" 之类的词。 */
 export const READONLY_SQL_RE = /^(SELECT|SHOW|DESCRIBE|EXPLAIN)\b/i;
 
-/** DML statements allowed for the mutation tool. Rejects DDL (CREATE/DROP/ALTER/TRUNCATE). */
+/** 变更工具允许的 DML 语句。拒绝 DDL（CREATE/DROP/ALTER/TRUNCATE）。 */
 export const MUTATION_SQL_RE = /^(INSERT|UPDATE|DELETE|REPLACE)\b/i;
 
 const WHERE_RE = /\bWHERE\b/i;
@@ -21,20 +21,20 @@ export interface MutationValidation {
   warning?: string;
 }
 
-/** Default row cap applied to SELECT statements without a trailing LIMIT. */
+/** 应用于无尾部 LIMIT 的 SELECT 语句的默认行数上限。 */
 export const DEFAULT_QUERY_LIMIT = 100;
 
-// SELECT ... LIMIT 10  |  LIMIT 10;   (only at the very end of the statement)
+// SELECT ... LIMIT 10  |  LIMIT 10;   （仅语句最末尾）
 const TRAILING_LIMIT_RE = /\bLIMIT\s+\d+\s*;?\s*$/i;
 
-// LIMIT cannot follow FOR UPDATE — appending would be a syntax error.
+// LIMIT 不能跟在 FOR UPDATE 后面——追加会成为语法错误。
 const FOR_UPDATE_RE = /\bFOR\s+UPDATE\s*;?\s*$/i;
 
 /**
- * Validate that `sql` is read-only and append `LIMIT n` to SELECT statements
- * that don't already end with one. Returns the final SQL to execute.
+ * 校验 `sql` 是只读的，并给不以 LIMIT 结尾的 SELECT 语句追加 `LIMIT n`。
+ * 返回最终要执行的 SQL。
  *
- * SHOW / DESCRIBE / EXPLAIN pass through untouched (no uniform LIMIT syntax).
+ * SHOW / DESCRIBE / EXPLAIN 原样通过（没有统一的 LIMIT 语法）。
  */
 export function prepareReadOnlyQuery(sql: string, limit: number = DEFAULT_QUERY_LIMIT): string {
   const trimmed = sql.trim();
@@ -48,10 +48,10 @@ export function prepareReadOnlyQuery(sql: string, limit: number = DEFAULT_QUERY_
 }
 
 /**
- * Validate that `sql` is a DML mutation (INSERT/UPDATE/DELETE/REPLACE).
- * Throws on DDL, SELECT, or any unrecognized statement.
- * Returns metadata for the confirmation UI: operation type, whether it has
- * a WHERE clause, and an optional warning for WHERE-less UPDATE/DELETE.
+ * 校验 `sql` 是 DML 变更（INSERT/UPDATE/DELETE/REPLACE）。
+ * DDL、SELECT 或任何未识别语句时抛错。
+ * 返回确认 UI 需要的元数据：操作类型、是否带 WHERE 子句、
+ * 以及无 WHERE 的 UPDATE/DELETE 的可选警告。
  */
 export function prepareMutationQuery(sql: string): MutationValidation {
   const trimmed = sql.trim();
