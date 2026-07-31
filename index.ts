@@ -24,9 +24,9 @@ export default function (pi: ExtensionAPI) {
   // Register the /db command
   registerDbCommand(pi, getWorkspace);
 
-  // Register LLM tools: always-on (db_query, db_list_tables, db_table_schema,
-  // db_mutate) + db_tools loader (enables db_discover, db_list_relations,
-  // db_relation on demand — see tools/db-tool-catalog.ts).
+  // Register LLM tools: always-on (db_query, db_tables, db_mutate) + db_tools
+  // loader (enables db_discover, db_list_relations, db_relation on demand —
+  // see tools/db-tool-catalog.ts).
   registerDbTools(pi, getWorkspace);
 
   // Register bundled skills so they're discovered alongside the extension.

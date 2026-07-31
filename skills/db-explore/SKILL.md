@@ -25,8 +25,7 @@ All exploration uses the `db_*` tool family:
 | Tool                | Purpose in exploration                                             | Phase                              | Activation             |
 | ------------------- | ------------------------------------------------------------------ | ---------------------------------- | ---------------------- |
 | `db_discover`       | List configured connections and discover databases on a connection | 1 — Orient                         | on demand (`db_tools`) |
-| `db_list_tables`    | List all tables in the target database                             | 2 — Survey                         | always                 |
-| `db_table_schema`   | Show columns, types, and indexes for a specific table              | 3 — Inspect                        | always                 |
+| `db_tables`         | List tables, or show a table's columns & indexes (pass `table`)    | 2 — Survey, 3 — Inspect            | always                 |
 | `db_query`          | Execute read-only SQL (SELECT, EXPLAIN)                            | Fast path, 4 — Sample, 5 — Connect | always                 |
 | `db_mutate`         | Execute INSERT/UPDATE/DELETE/REPLACE (confirmation gated)          | Fast path                          | always                 |
 | `db_list_relations` | List registered table relationships                                | 5 — Connect                        | on demand (`db_tools`) |
@@ -36,7 +35,7 @@ All read tools default to the workspace selection but accept optional `connectio
 
 ### Enabling lazy tools
 
-`db_query`, `db_list_tables`, `db_table_schema`, and `db_mutate` are always active.
+`db_query`, `db_tables`, and `db_mutate` are always active.
 `db_discover`, `db_list_relations`, and `db_relation` are loaded on demand to keep the
 active tool set small. Before using one of them, enable it via the `db_tools` tool:
 
@@ -73,7 +72,7 @@ When the user asks a concrete data question with known table/column names, skip 
 2. **Execute**:
    - Reads → `db_query` (LIMIT auto-appended, result truncated at 50KB / 2000 lines)
    - Writes → `db_mutate` (INSERT/UPDATE/DELETE/REPLACE; a confirmation dialog gates every execution)
-3. **On failure**: if the query errors with "table not found" or "unknown column", call `db_table_schema` for the most likely table, find the correct name, then retry. If the table doesn't exist at all, fall back to Phase 2 (Survey).
+3. **On failure**: if the query errors with "table not found" or "unknown column", call `db_tables` (with `table` set) for the most likely table, find the correct name, then retry. If the table doesn't exist at all, fall back to Phase 2 (Survey).
 
 **Examples** (no schema preamble needed):
 
@@ -103,7 +102,7 @@ After Phase 1, if the user has stated a specific goal, adjust the focus of subse
 
 **Goal**: get the table catalog and pick 3-5 core tables to inspect first.
 
-1. Call `db_list_tables` for the target database.
+1. Call `db_tables` (without `table`) for the target database.
 2. Scan table names for **core entities** — these usually have:
    - Simple, singular nouns (`user`, `order`, `product`, `article`)
    - No prefix like `tmp_`, `bak_`, `_archive`
@@ -117,10 +116,10 @@ After Phase 1, if the user has stated a specific goal, adjust the focus of subse
 
 **Goal**: understand the schema of core tables.
 
-1. For each core table, call `db_table_schema`. Read:
+1. For each core table, call `db_tables` with `table` set to it. Read:
    - **Columns**: names, types, nullability. Note which columns look like foreign keys (ending in `_id` or matching other table names).
    - **Indexes**: primary keys, unique constraints, and secondary indexes. Indexes on `*_id` columns are FK hints.
-2. For lookup tables discovered in phase 2, call `db_table_schema` only if they appear in FK positions of core tables.
+2. For lookup tables discovered in phase 2, call `db_tables` only if they appear in FK positions of core tables.
 
 ### Phase 4 — Sample
 
@@ -194,7 +193,7 @@ Common failure modes and how to handle them:
 **Workspace not set** — `db_discover` shows connections but no current database selected.
 → Pick the first connection, list its databases, and ask the user which one to target.
 
-**Empty database** — `db_list_tables` returns zero tables.
+**Empty database** — `db_tables` (list mode) returns zero tables.
 → Report "database `<name>` has no tables" and end the workflow here.
 
 **Very large schema (50+ tables)** — Phase 2 produces an overwhelming list.

@@ -1,6 +1,6 @@
 /**
  * Schema markdown formatting — pure function shared by the /db schema
- * command and the db_table_schema LLM tool.
+ * command and the db_tables LLM tool.
  */
 
 import type { SqlRow } from "../types";
