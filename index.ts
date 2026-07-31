@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseWorkspaceService } from "./state/workspace";
 import { registerDbCommand, restoreStatusBar } from "./commands/db";
 import { registerRenderers } from "./commands/renderers";
-import { registerDbTools } from "./tools/db-tools";
+import { registerDbTools, applyInitialToolSet } from "./tools/db-tools";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
 
@@ -24,7 +24,9 @@ export default function (pi: ExtensionAPI) {
   // Register the /db command
   registerDbCommand(pi, getWorkspace);
 
-  // Register LLM tools (db_query, db_discover, db_list_tables, db_table_schema, db_list_relations, db_relation)
+  // Register LLM tools: always-on (db_query, db_list_tables, db_table_schema,
+  // db_mutate) + db_tools loader (enables db_discover, db_list_relations,
+  // db_relation on demand — see tools/db-tool-catalog.ts).
   registerDbTools(pi, getWorkspace);
 
   // Register bundled skills so they're discovered alongside the extension.
@@ -35,6 +37,10 @@ export default function (pi: ExtensionAPI) {
 
   // Restore status bar on session start
   pi.on("session_start", (_event, ctx) => {
+    // Narrow the tool set to always-on tools + the loader. Lazy tools
+    // (db_discover, db_list_relations, db_relation) are enabled on demand via
+    // the db_tools loader to keep the system prompt lean.
+    applyInitialToolSet(pi);
     const ws = getWorkspace();
     restoreStatusBar(ws, ctx);
     // Tell the LLM which database is active when resuming a session,

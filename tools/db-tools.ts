@@ -25,6 +25,8 @@ import { formatTableCompact } from "../formatting/result-table";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
 import { prepareMutationQuery } from "../connection/sql-policy";
 import { showMutationConfirm } from "../commands/mutate-confirm";
+import { LOADER_TOOL_NAME, LAZY_TOOL_INFO, matchDbTools } from "./db-tool-catalog";
+export { applyInitialToolSet } from "./db-tool-catalog";
 
 function truncate(text: string): string {
   const t = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
@@ -71,6 +73,66 @@ export function registerDbTools(
     return ws;
   };
 
+  // ── Loader: enables the lazily-loaded tools on demand ────────────
+  pi.registerTool({
+    name: LOADER_TOOL_NAME,
+    label: "DB Tools",
+    description:
+      "Search for and enable additional database tools that are not in the active set: " +
+      "db_discover (connections and databases), db_list_relations (registered table " +
+      "relationships), db_relation (register or delete relationships). Call this when a " +
+      "task needs one of these capabilities — enabled tools become available from the " +
+      "next turn. db_query, db_list_tables, db_table_schema, and db_mutate are always active.",
+    promptSnippet: "Enable additional database tools (discover, relations) when needed",
+    promptGuidelines: [
+      "Call db_tools to enable db_discover, db_list_relations, or db_relation when a task needs them — they are loaded on demand to keep the tool set small.",
+      "db_query, db_list_tables, db_table_schema, and db_mutate are always available.",
+      "After enabling db_discover, use it instead of reading the connections config file directly (it contains credentials).",
+    ],
+    parameters: Type.Object({
+      query: Type.Optional(
+        Type.String({
+          description:
+            'Capability to search for, e.g. "discover" or "relations". Empty matches all database tools.',
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const matches = matchDbTools(params.query);
+      if (matches.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                'No matching database tools. Try: "discover" (connections/databases), ' +
+                '"relations" (list/register table relationships).',
+            },
+          ],
+          details: { matches: [] as string[], added: [] as string[] },
+        };
+      }
+
+      const active = pi.getActiveTools();
+      const added = matches.filter((name) => !active.includes(name));
+      if (added.length > 0) {
+        // Additive only — pi records the newly available tools on this result
+        // and exposes them to the model on the next request.
+        pi.setActiveTools([...new Set([...active, ...added])]);
+      }
+
+      const lines = matches.map((name) => `- ${name}: ${LAZY_TOOL_INFO[name]}`);
+      const header =
+        added.length > 0
+          ? `Enabled ${added.length} tool(s), available from the next turn:\n`
+          : "Already active:\n";
+      return {
+        content: [{ type: "text", text: header + lines.join("\n") }],
+        details: { matches, added },
+      };
+    },
+  });
+
   pi.registerTool({
     name: "db_query",
     label: "DB Query",
@@ -85,7 +147,6 @@ export function registerDbTools(
     promptGuidelines: [
       "Use db_query to answer data questions directly instead of asking the user to run /db query.",
       "For questions spanning multiple databases on the same instance, write one query with db.table qualified names instead of switching databases.",
-      "Use db_discover to discover valid connection IDs and database names before passing connection/database params.",
     ],
     parameters: Type.Object({
       sql: Type.String({ description: "Read-only SQL (SELECT / SHOW / DESCRIBE / EXPLAIN)" }),
@@ -134,11 +195,11 @@ export function registerDbTools(
       "Returns all configured connections (IDs, environments, default databases) plus " +
       "the databases on a given connection. Use this first to learn what connection " +
       "and database values are valid for the optional params of db_query, db_list_tables, " +
-      "and db_table_schema.",
-    promptSnippet: "Discover available connections and databases",
-    promptGuidelines: [
-      "Use db_discover first when exploring — it tells you which connection and database values are valid.",
-    ],
+      "and db_table_schema. Never read the connections config file directly " +
+      "(e.g. ~/.pi/database/connections.yaml) — it contains credentials; this tool returns " +
+      "the same information redacted.",
+    // Lazily loaded via db_tools — no promptSnippet/promptGuidelines so
+    // activation does not rebuild the system prompt (see Dynamic Tool Loading).
     parameters: Type.Object({
       connection: Type.Optional(
         Type.String({ description: "Connection ID. Defaults to the current connection." }),
@@ -242,11 +303,7 @@ export function registerDbTools(
       "database. Use these to write JOINs yourself in db_query, or to plan batched " +
       "queries when a JOIN is not possible (e.g. tables on different connections). " +
       "Defaults to the currently selected database.",
-    promptSnippet: "List registered table relationships",
-    promptGuidelines: [
-      "Use db_list_relations before writing multi-table queries — registered relations tell you which columns join to which.",
-      "Check db_list_relations before db_relation to avoid redundant work (register is idempotent).",
-    ],
+    // Lazily loaded via db_tools — no promptSnippet/promptGuidelines (see above).
     parameters: Type.Object({
       table: Type.Optional(Type.String({ description: "Only relations involving this table" })),
       database: Type.Optional(
@@ -288,10 +345,8 @@ export function registerDbTools(
       "Use this to insert, update, or delete rows — never use db_query for writes.",
     promptSnippet: "Modify data (INSERT/UPDATE/DELETE) with human approval gate",
     promptGuidelines: [
-      "Use db_mutate to insert/update/delete data — db_query rejects writes.",
       "Always include a WHERE clause in UPDATE/DELETE unless the user explicitly wants to affect all rows.",
       "Explain what the mutation will do before calling db_mutate, so the user understands why the confirmation dialog appeared.",
-      "For multi-statement mutations, call db_mutate once per statement; each requires separate approval.",
     ],
     parameters: Type.Object({
       sql: Type.String({
@@ -386,13 +441,7 @@ export function registerDbTools(
       "repeatedly on the same column pair). " +
       "action='delete': remove a relationship by exact column match. " +
       "Use db_list_relations first to see what already exists.",
-    promptSnippet: "Register or delete a table relationship",
-    promptGuidelines: [
-      "Use db_list_relations before db_relation to see existing relations and avoid redundant work.",
-      "action='register' is idempotent — if the same column pair exists, it will be updated.",
-      "action='delete' removes all relations matching the exact column pair.",
-      "After registering a relation, the auto-join engine can use it immediately in db_query.",
-    ],
+    // Lazily loaded via db_tools — no promptSnippet/promptGuidelines (see above).
     parameters: Type.Object({
       action: StringEnum(["register", "delete"] as const, {
         description: "register: create or update a relationship. delete: remove a relationship.",

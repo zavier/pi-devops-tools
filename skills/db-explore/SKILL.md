@@ -22,17 +22,32 @@ description: >
 
 All exploration uses the `db_*` tool family:
 
-| Tool                | Purpose in exploration                                             | Phase                              |
-| ------------------- | ------------------------------------------------------------------ | ---------------------------------- |
-| `db_discover`       | List configured connections and discover databases on a connection | 1 — Orient                         |
-| `db_list_tables`    | List all tables in the target database                             | 2 — Survey                         |
-| `db_table_schema`   | Show columns, types, and indexes for a specific table              | 3 — Inspect                        |
-| `db_query`          | Execute read-only SQL (SELECT, EXPLAIN)                            | Fast path, 4 — Sample, 5 — Connect |
-| `db_mutate`         | Execute INSERT/UPDATE/DELETE/REPLACE (confirmation gated)          | Fast path                          |
-| `db_list_relations` | List registered table relationships                                | 5 — Connect                        |
-| `db_relation`       | Register new relationships (action="register")                     | 5 — Connect                        |
+| Tool                | Purpose in exploration                                             | Phase                              | Activation             |
+| ------------------- | ------------------------------------------------------------------ | ---------------------------------- | ---------------------- |
+| `db_discover`       | List configured connections and discover databases on a connection | 1 — Orient                         | on demand (`db_tools`) |
+| `db_list_tables`    | List all tables in the target database                             | 2 — Survey                         | always                 |
+| `db_table_schema`   | Show columns, types, and indexes for a specific table              | 3 — Inspect                        | always                 |
+| `db_query`          | Execute read-only SQL (SELECT, EXPLAIN)                            | Fast path, 4 — Sample, 5 — Connect | always                 |
+| `db_mutate`         | Execute INSERT/UPDATE/DELETE/REPLACE (confirmation gated)          | Fast path                          | always                 |
+| `db_list_relations` | List registered table relationships                                | 5 — Connect                        | on demand (`db_tools`) |
+| `db_relation`       | Register new relationships (action="register")                     | 5 — Connect                        | on demand (`db_tools`) |
 
 All read tools default to the workspace selection but accept optional `connection` and `database` overrides. `db_relation` accepts a `database` override.
+
+### Enabling lazy tools
+
+`db_query`, `db_list_tables`, `db_table_schema`, and `db_mutate` are always active.
+`db_discover`, `db_list_relations`, and `db_relation` are loaded on demand to keep the
+active tool set small. Before using one of them, enable it via the `db_tools` tool:
+
+- `db_tools` with `query: "discover"` → enables `db_discover`
+- `db_tools` with `query: "relations"` → enables `db_list_relations` and `db_relation`
+
+Enabled tools become available from the **next turn**. If a call fails because a tool
+is unavailable, enable it via `db_tools` first and retry.
+
+Never read the connections config file directly (e.g. `~/.pi/database/connections.yaml`)
+— it contains credentials. `db_discover` returns the same connection list redacted.
 
 ## Core workflow
 
@@ -41,7 +56,7 @@ All read tools default to the workspace selection but accept optional `connectio
 | Phase       | Tool calls | Typical time |
 | ----------- | ---------- | ------------ |
 | Fast path   | 1-3        | <5s          |
-| 1 — Orient  | 1          | <2s          |
+| 1 — Orient  | 1-2        | <3s          |
 | 2 — Survey  | 1          | <2s          |
 | 3 — Inspect | 3-5        | 5-10s        |
 | 4 — Sample  | 3-5        | 5-10s        |
@@ -54,7 +69,7 @@ All read tools default to the workspace selection but accept optional `connectio
 
 When the user asks a concrete data question with known table/column names, skip directly to querying:
 
-1. **Orient** (if needed): if the target database isn't the current workspace selection, call `db_discover` once to confirm. Skip if the workspace is already set.
+1. **Orient** (if needed): if the target database isn't the current workspace selection, enable `db_discover` via `db_tools` if needed, then call it once to confirm. Skip if the workspace is already set.
 2. **Execute**:
    - Reads → `db_query` (LIMIT auto-appended, result truncated at 50KB / 2000 lines)
    - Writes → `db_mutate` (INSERT/UPDATE/DELETE/REPLACE; a confirmation dialog gates every execution)
@@ -70,8 +85,9 @@ When the user asks a concrete data question with known table/column names, skip 
 
 **Goal**: confirm the target connection and database.
 
-1. Call `db_discover` without parameters to see current connection + available databases.
-2. If the target isn't the current workspace selection, note the `connection` and `database` values for override params.
+1. If `db_discover` is not available, call `db_tools` with `query: "discover"` first.
+2. Call `db_discover` without parameters to see current connection + available databases.
+3. If the target isn't the current workspace selection, note the `connection` and `database` values for override params.
 
 ### Before proceeding — check the goal
 
@@ -123,18 +139,19 @@ After Phase 1, if the user has stated a specific goal, adjust the focus of subse
 
 **Goal**: discover and register table relationships.
 
-1. Call `db_list_relations` for the database to see already-registered relationships.
-2. For each core table, look at column names ending in `_id`:
+1. If `db_list_relations` / `db_relation` are not available, call `db_tools` with `query: "relations"` first.
+2. Call `db_list_relations` for the database to see already-registered relationships.
+3. For each core table, look at column names ending in `_id`:
    - `user_id` → likely references `users.id`
    - `order_id` → likely references `orders.id`
      For bulk FK discovery across all tables, query `information_schema.COLUMNS` with `WHERE COLUMN_NAME LIKE '%\_id'`. The `\_` escapes the underscore — without it, `_` matches any single character.
-3. For each candidate FK pair, verify by checking:
+4. For each candidate FK pair, verify by checking:
    - The referenced table exists (from phase 2)
    - The column types match (from phase 3 schemas)
-4. Register confirmed relationships via `db_relation` with `action="register"`.
+5. Register confirmed relationships via `db_relation` with `action="register"`.
    - Default to `relationType: "MANY_TO_ONE"` (the FK side is "many").
    - Registration is idempotent — safe to call on existing pairs.
-5. Write a test JOIN query via `db_query` to confirm the relationship works:
+6. Write a test JOIN query via `db_query` to confirm the relationship works:
    ```sql
    SELECT t1.*, t2.column
    FROM table1 t1
@@ -187,7 +204,7 @@ Common failure modes and how to handle them:
 → Report "no column-naming FK candidates found." Suggest running `/db relations discover` for system-declared foreign keys, or ask the user about implicit relationships.
 
 **Connection refused or timeout** — any tool call fails with a network error.
-→ Report the error. Check connectivity with `scripts/workspace-status.sh`. Wait for the user to confirm before retrying — they may need to check VPN, credentials, or the MySQL server status.
+→ Report the error. Check connectivity with `node scripts/status.mjs`. Wait for the user to confirm before retrying — they may need to check VPN, credentials, or the MySQL server status.
 
 ## Anti-patterns to avoid
 
@@ -207,7 +224,7 @@ After the core workflow and report, branch out based on the user's goal (adjuste
 
 ## Scripts
 
-**`scripts/workspace-status.sh`** — Check the current database workspace state (connection, database, relations count, query history, favorites, and configured connections) without making a tool call. Run when:
+**`scripts/status.mjs`** — Check the current database workspace state (connection, database, relations count, query history, favorites, and configured connections) without making a tool call. Run from the skill directory with `node scripts/status.mjs` (uses the extension's own `better-sqlite3`/`js-yaml` dependencies). Also lists registered relationships: `node scripts/status.mjs relations [table]` — a fallback when `db_list_relations` is not enabled. Run when:
 
 - Unsure which connection/database is currently selected and want a quick overview before calling `db_discover`
 - Debugging tool call failures by confirming the underlying state
