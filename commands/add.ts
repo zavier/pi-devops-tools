@@ -1,14 +1,14 @@
 /**
- * /db add — interactive wizard to create a new database connection.
+ * /db add —— 创建新数据库连接的交互向导。
  *
- * Walks the user through environment → name → host → port → credentials
- * via sequential UI prompts, then writes to ~/.pi/database/connections.yaml
- * and hot-reloads. No LLM involved for credential entry.
+ * 通过顺序 UI 提示引导用户完成 环境 → 名称 → 主机 → 端口 → 凭据，
+ * 然后写入 ~/.pi/database/connections.yaml 并热重载。
+ * 凭据输入不涉及 LLM。
  *
- * Security / UX improvements over the original:
- * - Masked password input (asterisks in TUI, real value stored)
- * - Per-field validation (port range, host non-empty)
- * - Optional connection test after saving
+ * 相对原版的改进（安全 / UX）：
+ * - 掩码密码输入（TUI 中显示星号，存储真实值）
+ * - 逐字段校验（端口范围、主机非空）
+ * - 保存后可选的连接测试
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -18,12 +18,12 @@ import type { DatabaseWorkspaceService } from "../state/workspace";
 import { withLoader } from "./utils";
 import { createPasswordReducer } from "./filter-input";
 
-// ── Masked password input ────────────────────────────────────────
+// ── 掩码密码输入 ────────────────────────────────────────
 
 /**
- * Password entry with masked display (asterisks).
- * Supports ${ENV_VAR} placeholders — the mask still works but the
- * actual value is saved as-is.
+ * 掩码显示（星号）的密码输入。
+ * 支持 ${ENV_VAR} 占位符——掩码仍然生效，但
+ * 实际值原样保存。
  */
 async function maskedPassword(
   ctx: ExtensionCommandContext,
@@ -64,13 +64,13 @@ async function maskedPassword(
           displayLine.setText(theme.fg("muted", `> ${"*".repeat(result.password.length)}`));
           tui.requestRender();
         }
-        // "none" → ignored
+        // "none" → 忽略
       },
     };
   });
 }
 
-// ── Validated input helpers ──────────────────────────────────────
+// ── 校验输入辅助 ──────────────────────────────────────
 
 async function requiredInput(
   ctx: ExtensionCommandContext,
@@ -102,7 +102,7 @@ async function portInput(
   return port;
 }
 
-// ── Entry point ──────────────────────────────────────────────────
+// ── 入口 ──────────────────────────────────────────────────
 
 export async function handleAdd(
   ctx: ExtensionCommandContext,
@@ -113,7 +113,7 @@ export async function handleAdd(
     return;
   }
 
-  // --- Environment ---
+  // --- 环境 ---
   const envs = ws.getEnvironments();
   let env: string;
   if (envs.length === 0) {
@@ -130,7 +130,7 @@ export async function handleAdd(
     }
   }
 
-  // --- Connection name ---
+  // --- 连接名 ---
   const connName = await requiredInput(
     ctx,
     `连接名称（在 ${env} 环境下的唯一标识）`,
@@ -139,28 +139,28 @@ export async function handleAdd(
   );
   if (!connName) return;
 
-  // --- Host ---
+  // --- 主机 ---
   const host = await requiredInput(ctx, "主机地址", "localhost", "主机地址");
   if (!host) return;
 
-  // --- Port (with range validation) ---
+  // --- 端口（带范围校验）---
   const port = await portInput(ctx, "端口", "3306");
   if (port === undefined) return;
 
-  // --- Username ---
+  // --- 用户名 ---
   const username = await requiredInput(ctx, "用户名", "root", "用户名");
   if (!username) return;
 
-  // --- Password (masked) ---
+  // --- 密码（掩码）---
   const pwd = await maskedPassword(ctx, "密码（或 ${ENV_VAR} 占位符）");
   if (pwd === undefined) return;
 
-  // --- Default database (optional) ---
+  // --- 默认数据库（可选）---
   const database = await ctx.ui.input("默认数据库（可选，留空则每次选择）");
   if (database === undefined) return;
   const defaultDb = database?.trim() || undefined;
 
-  // --- Confirm ---
+  // --- 确认 ---
   const summary = [
     `环境:    ${env}`,
     `名称:    ${connName}`,
@@ -175,7 +175,7 @@ export async function handleAdd(
   const ok = await ctx.ui.confirm("确认创建连接？", summary);
   if (!ok) return;
 
-  // --- Write ---
+  // --- 写入 ---
   try {
     ws.createConnection(env, connName, {
       environment: env,
@@ -191,7 +191,7 @@ export async function handleAdd(
     return;
   }
 
-  // --- Optional connection test ---
+  // --- 可选的连接测试 ---
   ctx.ui.notify(`✅ 已添加连接 "${connName}" 到 ${env} 环境。`, "info");
 
   const test = await ctx.ui.confirm("测试连接", "是否立即测试连接？");

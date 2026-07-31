@@ -1,15 +1,15 @@
 /**
- * /db query — execute SQL queries against the current database.
+ * /db query —— 对当前数据库执行 SQL 查询。
  *
- * Two modes: table-first (pick table → WHERE → auto-generate) and raw SQL.
+ * 两种模式：表优先（选表 → WHERE → 自动生成）和裸 SQL。
  *
- * Read-only guard and LIMIT injection live in connection/sql-policy.ts and are
- * enforced by the executor — this module only uses READONLY_SQL_RE for dispatch
- * (is this argument a table name or SQL?).
+ * 只读守卫和 LIMIT 注入在 connection/sql-policy.ts，由执行器强制——
+ * 本模块只用 READONLY_SQL_RE 做分发判断（参数是表名还是 SQL？）。
  *
- * Exports:
- * - handleQuery     — entry point for /db query
- * - executeAndDisplay — shared by favorites handler
+ *
+ * 导出：
+ * - handleQuery     —— /db query 入口
+ * - executeAndDisplay —— favorites 处理器共用
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -28,9 +28,9 @@ interface ExecutedResult {
   sql: string; // final SQL after policy (LIMIT may have been appended)
 }
 
-// ── Row sanitization ────────────────────────────────────────────
+// ── 行清洗 ────────────────────────────────────────────
 
-/** Convert SqlRow values to string|null — safe for JSON serialization in entries. */
+/** 将 SqlRow 值转为 string|null —— 保证条目中 JSON 序列化安全。 */
 function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
   return rows.map((row) => {
     const obj: Record<string, string | null> = {};
@@ -42,7 +42,7 @@ function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
   });
 }
 
-// ── Related results formatting ──────────────────────────────────
+// ── 关联结果格式化 ──────────────────────────────────
 
 function formatRelatedResults(related: RelatedResult[]): string {
   if (related.length === 0) return "";
@@ -63,7 +63,7 @@ function formatRelatedResults(related: RelatedResult[]): string {
   return lines.join("\n");
 }
 
-// ── Display (dual audience: TUI entry + LLM context) ───────────
+// ── 展示（双受众：TUI 条目 + LLM 上下文）──────────
 
 async function displayQueryResult(
   ctx: ExtensionCommandContext,
@@ -76,10 +76,10 @@ async function displayQueryResult(
   try {
     ws.saveHistory(result.sql, result.rows.length, result.elapsed);
   } catch {
-    /* non-fatal */
+    /* 非致命 */
   }
 
-  // ── TUI: adaptive-width table (entry, not in LLM context) ───────
+  // ── TUI：自适应宽度表格（条目，不进 LLM 上下文）───────
 
   pi.appendEntry("db-query-result", {
     database,
@@ -91,7 +91,7 @@ async function displayQueryResult(
     relatedCount: related.length,
   } satisfies QueryResultEntryData);
 
-  // ── LLM context: compact table + metadata (display: false) ───────
+  // ── LLM 上下文：紧凑表格 + 元数据（display: false）───────
 
   const compact = formatTableCompact({ columns: result.columns, rows: result.rows });
   const relatedText = related.length > 0 ? formatRelatedResults(related) : "";
@@ -119,7 +119,7 @@ async function displayQueryResult(
   );
 }
 
-// ── Execute and display ─────────────────────────────────────────
+// ── 执行并展示 ─────────────────────────────────────────
 
 export async function executeAndDisplay(
   ctx: ExtensionCommandContext,
@@ -138,7 +138,7 @@ export async function executeAndDisplay(
   await displayQueryResult(ctx, ws, pi, result);
 }
 
-// ── Table-first query ───────────────────────────────────────────
+// ── 表优先查询 ───────────────────────────────────────────
 
 async function queryByTable(
   ctx: ExtensionCommandContext,
@@ -164,7 +164,7 @@ async function queryByTable(
     autoJoin = choice.startsWith("📎");
   }
 
-  // No LIMIT here — the executor appends the configured cap.
+  // 这里不加 LIMIT——执行器追加配置的上限。
   let sql = `SELECT * FROM \`${table}\``;
   if (where.trim()) {
     sql += ` WHERE ${where.trim()}`;
@@ -184,7 +184,7 @@ async function queryByTable(
   }
 }
 
-// ── Raw SQL input ───────────────────────────────────────────────
+// ── 裸 SQL 输入 ───────────────────────────────────────────────
 
 async function queryRaw(
   ctx: ExtensionCommandContext,
@@ -194,11 +194,11 @@ async function queryRaw(
   const sql = await ctx.ui.editor("SQL（只读查询，支持多行）", "");
   if (!sql || !sql.trim()) return;
 
-  // No pre-validation — the executor enforces the read-only guard.
+  // 不做预校验——执行器强制只读守卫。
   await executeAndDisplay(ctx, ws, pi, sql.trim());
 }
 
-// ── Entry point ─────────────────────────────────────────────────
+// ── 入口 ─────────────────────────────────────────────────
 
 export async function handleQuery(
   ctx: ExtensionCommandContext,
@@ -228,7 +228,7 @@ export async function handleQuery(
     return;
   }
 
-  // Unified picker: tables + SQL entry as first option
+  // 统一选择器：表 + 第一个选项是 SQL 输入
   const sqlEntry: SelectItem = { value: "__sql__", label: "✏️ 直接输入 SQL…" };
   const choice = await pickTableFuzzy(ctx, ws, "选择数据表 或 直接输入 SQL", [sqlEntry]);
   if (!choice) return;

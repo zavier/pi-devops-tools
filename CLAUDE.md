@@ -2,108 +2,108 @@
 
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code（claude.ai/code）在本仓库中工作时提供指引。
 
-## Overview
+## 概览
 
-`pi-devops-tools` is a [pi](https://pi.dev) extension that provides a database workspace inside the terminal — query MySQL databases and manage table relationships. The single entry point is the interactive `/db` command.
+`pi-devops-tools` 是一个 [pi](https://pi.dev) 扩展，在终端内提供数据库工作空间——查询 MySQL 数据库、管理表关联关系。唯一入口是交互式 `/db` 命令。
 
-## Commands
+## 命令
 
 ```bash
-npm test              # Run all tests (vitest)
-npx vitest run        # Equivalent
-npx vitest path/to/test.test.ts  # Run a single test file
-npx tsc --noEmit      # Typecheck (no build step — pi loads TypeScript directly)
+npm test              # 运行所有测试（vitest）
+npx vitest run        # 等价写法
+npx vitest path/to/test.test.ts  # 运行单个测试文件
+npx tsc --noEmit      # 类型检查（无构建步骤——pi 直接加载 TypeScript）
 ```
 
-## Architecture
+## 架构
 
-### Single service entry point
+### 单一服务入口
 
-`DatabaseWorkspaceService` (`state/workspace.ts`) is the facade behind the `/db` command, composing all modules. It is registered in `index.ts`, which is the extension's only wiring point.
+`DatabaseWorkspaceService`（`state/workspace.ts`）是 `/db` 命令背后的 facade，组合所有模块。它在 `index.ts` 中注册——`index.ts` 是扩展唯一的接线点。
 
-### Configuration
+### 配置
 
-User-scoped connections live in `~/.pi/database/connections.yaml`, loaded by `connection/db-config.ts` into `ResolvedConnectionConfig[]`. Supports `${ENV_VAR}` substitution in passwords. There is no project-level config file.
+用户级连接位于 `~/.pi/database/connections.yaml`，由 `connection/db-config.ts` 加载为 `ResolvedConnectionConfig[]`。支持密码中的 `${ENV_VAR}` 替换。没有项目级配置文件。
 
-### Data storage
+### 数据存储
 
-All persistent state lives under `~/.pi/database/`:
+所有持久状态位于 `~/.pi/database/` 下：
 
-| Path             | Format | Owned by                                                                                                      |
-| ---------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| `workspace.json` | JSON   | `WorkspaceContext` — current env/connection/database selection                                                |
-| `state.db`       | SQLite | `QueryHistoryStore` + `FavoriteStore` + `RelationStore` (3 tables, 1 DB, shared handle via `history.getDb()`) |
+| 路径             | 格式   | 属主                                                                                                        |
+| ---------------- | ------ | ----------------------------------------------------------------------------------------------------------- |
+| `workspace.json` | JSON   | `WorkspaceContext` —— 当前的 env/connection/database 选择                                                   |
+| `state.db`       | SQLite | `QueryHistoryStore` + `FavoriteStore` + `RelationStore`（3 张表、1 个 DB，通过 `history.getDb()` 共享句柄） |
 
-### Layer stack (flat)
+### 分层结构（扁平）
 
 ```
-commands/          ← /db subcommand handlers — only see the DatabaseWorkspaceService interface
-state/workspace.ts ← DatabaseWorkspaceService — the single deep module behind /db
-state/state-store.ts ← StateStore — owns baseDir + SQLite handle + derived paths (injectable seam)
-connection/        ← DatabaseConnectionManager (lazy mysql2 pools) + sql-policy (guard + LIMIT)
-                     + db-config (connections.yaml loader, accepts optional path)
-history/           ← QueryHistoryStore + FavoriteStore (accept Database in constructor)
-relation/          ← RelationStore (accepts Database in constructor)
-relation-graph.ts  ← RelationGraph (in-memory bidirectional graph + BFS, accepts Database)
-formatting/        ← formatTableResult — auto layout: horizontal / transposed / vertical
+commands/          ← /db 子命令处理器 —— 只看到 DatabaseWorkspaceService 接口
+state/workspace.ts ← DatabaseWorkspaceService —— /db 背后唯一的深度模块
+state/state-store.ts ← StateStore —— 拥有 baseDir + SQLite 句柄 + 派生路径（可注入接缝）
+connection/        ← DatabaseConnectionManager（懒加载 mysql2 连接池）+ sql-policy（守卫 + LIMIT）
+                     + db-config（connections.yaml 加载器，接受可选路径）
+history/           ← QueryHistoryStore + FavoriteStore（构造函数接受 Database）
+relation/          ← RelationStore（构造函数接受 Database）
+relation-graph.ts  ← RelationGraph（内存双向图 + BFS，接受 Database）
+formatting/        ← formatTableResult —— 自动布局：横向 / 转置 / 纵向
 ```
 
-### Key design patterns
+### 关键设计模式
 
-- **Deep workspace module**: `DatabaseWorkspaceService` absorbs WorkspaceContext + QueryRunner into one class. All delegates (`manager`, `history`, `favorites`, `relationGraph`) are private — commands cross the external seam through ~23 purpose-built methods. No command reaches past the facade.
-- **Single execution point**: all read queries go through `DatabaseConnectionManager.executeQuery`, which applies the read-only guard and LIMIT policy (`connection/sql-policy.ts` — pure functions, single home of `READONLY_SQL_RE`), then runs on a dedicated checked-out connection (`getConnection → USE → query → release`) so USE and the query can't be split across pool connections. Unbounded SELECTs get `LIMIT n` appended (default 100, per-connection `queryLimit` in connections.yaml); the final SQL is returned as `result.sql` so auto-appended limits are visible to the user. Write operations go through `DatabaseConnectionManager.executeMutation` — no read-only guard, but gated by `prepareMutationQuery` (DDL rejected) and a mandatory human confirmation dialog. Command handlers import `READONLY_SQL_RE` only for dispatch (table-name vs SQL), never for enforcement.
-- **Live schema**: `getTables()` and `getTableSchema()` always query `information_schema` — no cache, nothing to refresh. Cheap enough in practice and never stale.
-- **BFS auto-join**: `RelationGraph.bfsQuery()` traverses the in-memory forward graph, issuing parameterized (`IN (?)`), schema-qualified queries at each hop. Depth-limited (default 2, max 5). It receives a `QueryFn` from its caller rather than a mysql2 pool — the graph stays DB-agnostic and is tested with a stub.
-- **Lazy workspace init**: `DatabaseWorkspaceService` is not constructed in the extension factory (which may run in invocations that never start a session such as `--list-models` or print mode). Instead a lazy getter defers opening SQLite / reading config until `session_start`, the first `/db` command, or the first tool call.
-- **Lazy connections**: MySQL pools are created on first use and cached by connection ID. `destroy()` cleans up all pools. `reloadConfig()` destroys the old manager before swapping so old pools don't leak.
-- **StateStore seam**: `DatabaseWorkspaceService(storage?)` accepts an optional `StateStore` — production defaults to `~/.pi/database`, tests inject a temp directory. `StateStore` owns the SQLite handle (all three stores + RelationGraph share it via constructor injection), plus path helpers for workspace.json and connections config.
+- **深度工作空间模块**：`DatabaseWorkspaceService` 将 WorkspaceContext + QueryRunner 吸收进一个类。所有委托（`manager`、`history`、`favorites`、`relationGraph`）都是私有字段——命令通过约 23 个专用方法穿越外部接缝。任何命令都不能越过 facade。
+- **单一执行点**：所有读查询经过 `DatabaseConnectionManager.executeQuery`，它应用只读守卫和 LIMIT 策略（`connection/sql-policy.ts`——纯函数，`READONLY_SQL_RE` 的唯一归属），然后在检出的专用连接上执行（`getConnection → USE → query → release`），这样 USE 与查询不会散落在连接池的不同连接上。无界 SELECT 自动追加 `LIMIT n`（默认 100，connections.yaml 中可配 per-connection `queryLimit`）；最终 SQL 通过 `result.sql` 返回，用户可以看到自动追加的 LIMIT。写操作经过 `DatabaseConnectionManager.executeMutation`——没有只读守卫，但由 `prepareMutationQuery`（拒绝 DDL）和强制人工确认对话框把关。命令处理器只在分发时（表名 vs SQL）导入 `READONLY_SQL_RE`，绝不用于执行期校验。
+- **实时 schema**：`getTables()` 和 `getTableSchema()` 总是查询 `information_schema`——无缓存、无刷新。实践中足够廉价且永不过期。
+- **BFS 自动 JOIN**：`RelationGraph.bfsQuery()` 遍历内存前向图，每跳发出参数化（`IN (?)`）、schema 限定的查询。深度受限（默认 2，最大 5）。它从调用方接收 `QueryFn` 而非 mysql2 连接池——图保持数据库无关，用 stub 测试。
+- **懒加载工作空间初始化**：`DatabaseWorkspaceService` 不在扩展工厂中构造（工厂可能运行在从不启动会话的调用中，如 `--list-models` 或 print 模式）。懒 getter 将打开 SQLite / 读取配置推迟到 `session_start`、第一次 `/db` 命令或第一次工具调用。
+- **懒加载连接**：MySQL 连接池在首次使用时创建，按 connection ID 缓存。`destroy()` 清理所有池。`reloadConfig()` 在替换前销毁旧 manager，避免旧池泄漏。
+- **StateStore 接缝**：`DatabaseWorkspaceService(storage?)` 接受可选的 `StateStore`——生产默认 `~/.pi/database`，测试注入临时目录。`StateStore` 拥有 SQLite 句柄（三个存储 + RelationGraph 通过构造函数注入共享它），以及 workspace.json 和 connections 配置的路径辅助。
 
-### LLM tools
+### LLM 工具
 
-The extension registers seven tools for the LLM in `tools/db-tools.ts` (five read-only + two writing: `db_relation` writes to local SQLite metadata, `db_mutate` writes to MySQL). Three tools are **lazily loaded** — registered but inactive, enabled on demand via the `db_tools` loader tool (`tools/db-tool-catalog.ts` holds the pure keyword-matching catalog + `applyInitialToolSet`, called from `session_start` in `index.ts` to keep every session on the minimal set):
+扩展在 `tools/db-tools.ts` 中为 LLM 注册 7 个工具（5 个只读 + 2 个写：`db_relation` 写本地 SQLite 元数据，`db_mutate` 写 MySQL）。其中 3 个工具**懒加载**——已注册但未激活，通过 `db_tools` loader 工具按需启用（`tools/db-tool-catalog.ts` 持有纯关键词匹配目录 + `applyInitialToolSet`，在 `index.ts` 的 `session_start` 中调用，让每个会话从最小集合开始）：
 
-| Tool                | Type      | Activation | Description                                                                                                                             |
-| ------------------- | --------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `db_query`          | read      | always     | Execute a read-only SQL query; LIMIT appended automatically. Result truncated with `truncateHead` (50KB / 2000 lines).                  |
-| `db_tables`         | read      | always     | List tables, or show a table's columns + indexes (pass `table`). Uses shared `formatSchemaMarkdown` pure function.                      |
-| `db_mutate`         | **write** | always     | Execute INSERT/UPDATE/DELETE/REPLACE with a human confirmation gate (overlay dialog, Enter to approve). DDL rejected.                   |
-| `db_tools`          | read      | always     | Loader: enable `db_discover` / `db_list_relations` / `db_relation` on demand (additive `setActiveTools`, effective next turn).          |
-| `db_discover`       | read      | via loader | Discover connections and databases — the entry point for exploration. Returns configured connections and the databases on a connection. |
-| `db_list_relations` | read      | via loader | List registered table relationships — the AI reads these to write JOINs itself or plan batched queries.                                 |
-| `db_relation`       | **write** | via loader | Manage table relationships in local SQLite: action="register" (idempotent upsert) or action="delete" (by column match).                 |
+| 工具                | 类型   | 激活方式  | 描述                                                                                                        |
+| ------------------- | ------ | --------- | ----------------------------------------------------------------------------------------------------------- |
+| `db_query`          | 只读   | 常驻      | 执行只读 SQL 查询；自动追加 LIMIT。结果用 `truncateHead` 截断（50KB / 2000 行）。                           |
+| `db_tables`         | 只读   | 常驻      | 列出表，或展示某张表的列 + 索引（传 `table`）。使用共享纯函数 `formatSchemaMarkdown`。                      |
+| `db_mutate`         | **写** | 常驻      | 执行 INSERT/UPDATE/DELETE/REPLACE，带人工确认门（overlay 对话框，Enter 批准）。拒绝 DDL。                   |
+| `db_tools`          | 只读   | 常驻      | Loader：按需启用 `db_discover` / `db_list_relations` / `db_relation`（加性 `setActiveTools`，下一轮生效）。 |
+| `db_discover`       | 只读   | 经 loader | 发现连接和数据库——探索入口。返回已配置的连接及某连接上的数据库。                                            |
+| `db_list_relations` | 只读   | 经 loader | 列出已注册的表关联关系——AI 读这些关系自行写 JOIN 或规划批量查询。                                           |
+| `db_relation`       | **写** | 经 loader | 管理本地 SQLite 中的表关联关系：action="register"（幂等 upsert）或 action="delete"（按列对匹配）。          |
 
-`db_query` and `db_tables` default to the workspace selection but accept optional `connection` / `database` overrides, resolved by `DatabaseWorkspaceService.resolveTarget` (explicit connection without database falls back to its `defaultDatabase`). `db_list_relations` / `db_relation` accept an optional `database` override. Databases on the same MySQL instance can be joined directly with `db.table` qualified names — the pool connects without a default database, so `USE` is never a sandbox.
+`db_query` 和 `db_tables` 默认使用工作空间选择，但接受可选的 `connection` / `database` 覆盖，由 `DatabaseWorkspaceService.resolveTarget` 解析（显式 connection 不带 database 时回退到其 `defaultDatabase`）。`db_list_relations` / `db_relation` 接受可选的 `database` 覆盖。同一 MySQL 实例上的数据库可以用 `db.table` 限定名直接 JOIN——连接池不带默认数据库连接，所以 `USE` 从来不是沙箱。
 
-The read tool `db_query` crosses `DatabaseWorkspaceService.executeQuery`, so the read-only guard and LIMIT policy apply. `db_tables` uses the same live `information_schema` queries as the `/db` commands (`getTables` / `getTableSchema`). `db_discover` reads the local connection config and lists databases via `SHOW DATABASES` on the manager. `db_list_relations` / `db_relation` operate on local SQLite via `RelationGraph` / `RelationStore` — they do not touch MySQL and need no read-only guard or confirmation gate (register is idempotent, delete matches exact columns). `db_mutate` uses `executeMutation` — no read-only guard, but `prepareMutationQuery` rejects DDL and the confirmation dialog gates every execution. `db_tools` (the loader) only manipulates the active tool set.
+只读工具 `db_query` 经过 `DatabaseWorkspaceService.executeQuery`，因此只读守卫和 LIMIT 策略生效。`db_tables` 使用与 `/db` 命令相同的实时 `information_schema` 查询（`getTables` / `getTableSchema`）。`db_discover` 读取本地连接配置并通过 manager 上的 `SHOW DATABASES` 列出数据库。`db_list_relations` / `db_relation` 通过 `RelationGraph` / `RelationStore` 操作本地 SQLite——它们不触碰 MySQL，不需要只读守卫或确认门（register 幂等，delete 按精确列对匹配）。`db_mutate` 使用 `executeMutation`——没有只读守卫，但 `prepareMutationQuery` 拒绝 DDL，每次执行都有确认对话框把关。`db_tools`（loader）只操作激活工具集。
 
-### Message rendering
+### 消息渲染
 
-Query results use a two-audience split (`commands/query.ts`, `commands/renderers.ts`):
+查询结果使用双受众拆分（`commands/query.ts`、`commands/renderers.ts`）：
 
-- **TUI**: `pi.appendEntry("db-query-result", data)` with `registerEntryRenderer` → adaptive-width Component (horizontal/transposed/vertical, column-width packing via `layoutColumns`). `ctrl+o` expands to full vertical output.
-- **LLM context**: `pi.sendMessage({ display: false, ... })` → `formatTableCompact` — unpadded markdown, 200-char cell cap with `…[+N]` markers, all rows included.
+- **TUI**：`pi.appendEntry("db-query-result", data)` + `registerEntryRenderer` → 自适应宽度 Component（横向/转置/纵向，列宽打包用 `layoutColumns`）。`ctrl+o` 展开为完整纵向输出。
+- **LLM 上下文**：`pi.sendMessage({ display: false, ... })` → `formatTableCompact`——无填充的 markdown，200 字符单元格上限加 `…[+N]` 标记，包含所有行。
 
-| customType           | Renderer                                                                                  |
-| -------------------- | ----------------------------------------------------------------------------------------- |
-| `db-query-result`    | Entry renderer: header + SQL + adaptive table; related tables hint; expand for full rows. |
-| `db-workspace-panel` | Message renderer: raw preformatted text (the panel is not markdown).                      |
+| customType           | 渲染器                                                            |
+| -------------------- | ----------------------------------------------------------------- |
+| `db-query-result`    | Entry 渲染器：表头 + SQL + 自适应表格；关联表提示；展开看完整行。 |
+| `db-workspace-panel` | Message 渲染器：原始预格式化文本（面板不是 markdown）。           |
 
-Others (`db-tables`, `db-table-schema`, `db-er-diagram`) use the default custom-message rendering (purple box + markdown) — their content is small and markdown-friendly.
+其他（`db-tables`、`db-table-schema`、`db-er-diagram`）使用默认自定义消息渲染（紫色框 + markdown）——内容小且适合 markdown。
 
-### Relation graph data flow
+### 关系图数据流
 
-1. User registers a relation via `/db relations add`: `source_table.column → target_table.column`
-   - Or: AI discovers relationships and calls `db_relation` tool (the `/db relations discover` flow instructs the model to use this tool)
-2. `RelationStore` persists to SQLite `table_relations` table
-3. `RelationGraph` rebuilds its in-memory bidirectional `forward` Map
-4. On query with auto-join, `bfsQuery()` starts from the queried table, follows registered edges, and returns related rows as separate `RelatedResult` objects
+1. 用户通过 `/db relations add` 注册关系：`source_table.column → target_table.column`
+   - 或：AI 发现关系并调用 `db_relation` 工具（`/db relations discover` 流程指示模型使用该工具）
+2. `RelationStore` 持久化到 SQLite `table_relations` 表
+3. `RelationGraph` 重建其内存双向 `forward` Map
+4. 自动 JOIN 查询时，`bfsQuery()` 从被查询表出发，沿已注册边遍历，将关联行作为独立 `RelatedResult` 对象返回
 
-### Type system
+### 类型系统
 
-All shared types are in `types.ts`: `ColumnRef`, `ColumnRelation`, `RelatedResult`. Each module may define additional internal types (e.g., `HistoryEntry` in `history/store.ts`).
+所有共享类型在 `types.ts`：`ColumnRef`、`ColumnRelation`、`RelatedResult`。每个模块可以定义额外内部类型（如 `history/store.ts` 中的 `HistoryEntry`）。
 
-### Tests
+### 测试
 
-Tests use `vitest` and live in `__tests__/` (sql-policy, history, relation-graph, workspace-target, ...). They test individual modules in isolation. `history.test.ts` passes `new Database(":memory:")`; `relation-graph.test.ts` uses `:memory:`; `workspace-target.test.ts` injects a temp-directory `StateStore` + temp `connections.yaml`.
+测试使用 `vitest`，位于 `__tests__/`（sql-policy、history、relation-graph、workspace-target 等）。它们隔离地测试单个模块。`history.test.ts` 传入 `new Database(":memory:")`；`relation-graph.test.ts` 使用 `:memory:`；`workspace-target.test.ts` 注入临时目录 `StateStore` + 临时 `connections.yaml`。

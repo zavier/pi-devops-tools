@@ -91,7 +91,7 @@ describe("DatabaseWorkspaceService target resolution", () => {
       connectionId: "other",
       database: "stagingdb",
     });
-    // defaultDatabase also works without switchTo
+    // 未 switchTo 时 defaultDatabase 也生效
     expect(ws.resolveTarget({ connectionId: "main" })).toEqual({
       connectionId: "main",
       database: "appdb",
@@ -134,13 +134,13 @@ describe("DatabaseWorkspaceService target resolution", () => {
 
     ws.upsertRelation("orders", "user_id", "users", "id", { database: "logs" });
 
-    // Override targets the other schema...
+    // 覆盖目标为另一个 schema……
     const inLogs = ws.listRelations(undefined, "logs");
     expect(inLogs).toHaveLength(1);
     expect(inLogs[0].schema).toBe("logs");
     expect(inLogs[0].table_name).toBe("orders");
 
-    // ...while the workspace default stays on the current database.
+    // ……而工作空间默认仍停留在当前数据库。
     expect(ws.listRelations()).toHaveLength(0);
   });
 
@@ -173,7 +173,7 @@ describe("DatabaseWorkspaceService target resolution", () => {
     expect(deleted).toBe(true);
     expect(ws.listRelations()).toHaveLength(0);
 
-    // Second delete is a no-op
+    // 第二次删除是空操作
     const deletedAgain = ws.removeRelationByColumns("somedb", "a", "x", "b", "y");
     expect(deletedAgain).toBe(false);
   });

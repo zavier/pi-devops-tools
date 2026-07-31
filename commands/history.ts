@@ -1,14 +1,14 @@
 /**
- * /db history — browse, re-run, edit, favorite, or delete query history.
+ * /db history —— 浏览、重跑、编辑、收藏或删除查询历史。
  *
- * Interactive flow:
+ * 交互流程：
  *   /db history [keyword]
- *     → SelectList of entries (type to filter, ↑↓ to navigate)
- *     → Select entry → action menu
- *       ▶ 重跑：re-execute immediately
- *       ✏️ 编辑后跑：open editor, then execute
- *       ⭐ 收藏：save as favorite
- *       🗑 删除：confirm and remove
+ *     → 条目 SelectList（输入过滤，↑↓ 导航）
+ *     → 选中条目 → 操作菜单
+ *       ▶ 重跑：立即重新执行
+ *       ✏️ 编辑后跑：打开编辑器，然后执行
+ *       ⭐ 收藏：保存为收藏
+ *       🗑 删除：确认并移除
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -19,7 +19,7 @@ import type { HistoryEntry } from "../history/store";
 import { withLoader } from "./utils";
 import { executeAndDisplay } from "./query";
 
-// ── Formatting ───────────────────────────────────────────────────
+// ── 格式化 ───────────────────────────────────────────────────
 
 function formatEntry(entry: HistoryEntry, index: number): string {
   const time = entry.createdTime.replace("T", " ").slice(5, 19); // "MM-DD HH:MM:SS"
@@ -41,7 +41,7 @@ function entryToItem(entry: HistoryEntry, index: number): SelectItem {
   };
 }
 
-// ── Entry point ───────────────────────────────────────────────────
+// ── 入口 ───────────────────────────────────────────────────
 
 export async function handleHistory(
   ctx: ExtensionCommandContext,
@@ -49,7 +49,7 @@ export async function handleHistory(
   pi: ExtensionAPI,
   keyword?: string,
 ): Promise<void> {
-  // 1. Load history entries
+  // 1. 加载历史记录
   const entries = await withLoader(
     ctx,
     keyword ? `搜索历史：${keyword}` : "加载查询历史…",
@@ -62,11 +62,11 @@ export async function handleHistory(
     return;
   }
 
-  // 2. Show interactive selector
+  // 2. 显示交互式选择器
   const selected = await showHistorySelector(ctx, entries);
   if (!selected) return;
 
-  // 3. Action menu
+  // 3. 操作菜单
   const action = await ctx.ui.select(
     `#${selected.id}  ${formatEntry(selected, entries.indexOf(selected))}`,
     ["▶ 重跑", "✏️ 编辑后跑", "⭐ 收藏", "🗑 删除"],
@@ -109,7 +109,7 @@ export async function handleHistory(
   }
 }
 
-// ── Selector component ────────────────────────────────────────────
+// ── 选择器组件 ────────────────────────────────────────────
 
 async function showHistorySelector(
   ctx: ExtensionCommandContext,
@@ -120,10 +120,10 @@ async function showHistorySelector(
   const selectedId = await ctx.ui.custom<string | undefined>((tui, theme, _kb, done) => {
     const container = new Container();
 
-    // Top border
+    // 上边框
     container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
-    // Title
+    // 标题
     container.addChild(
       new Text(
         theme.fg("accent", theme.bold(`📜 查询历史 — ${entries.length} 条`)) +
@@ -133,7 +133,7 @@ async function showHistorySelector(
       ),
     );
 
-    // SelectList
+    // SelectList 组件
     const selectList = new SelectList(items, Math.min(items.length, 12), {
       selectedPrefix: (t) => theme.fg("accent", t),
       selectedText: (t) => theme.fg("accent", theme.bold(t)),
@@ -148,7 +148,7 @@ async function showHistorySelector(
     selectList.onCancel = () => done(void 0);
     container.addChild(selectList);
 
-    // Bottom border
+    // 下边框
     container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
     return {

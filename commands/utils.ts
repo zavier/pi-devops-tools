@@ -1,5 +1,5 @@
 /**
- * Shared command utilities — pickTable, pickTableFuzzy, withLoader.
+ * 共享命令工具 —— pickTable、pickTableFuzzy、withLoader。
  */
 
 import {
@@ -12,16 +12,16 @@ import type { DatabaseWorkspaceService } from "../state/workspace";
 import { createFilterReducer } from "./filter-input";
 
 /**
- * Single-step fuzzy table picker: type to filter, arrow keys to select.
+ * 单步模糊表选择器：输入过滤，方向键选择。
  *
- * Replaces the two-step pickTable (keyword input → select). Uses
- * SelectList.setFilter() for native fuzzy matching — one step, no
- * intermediate dialog.
+ * 取代两步式 pickTable（关键词输入 → 选择）。使用
+ * SelectList.setFilter() 做原生模糊匹配——一步到位，无
+ * 中间对话框。
  *
- * @param extraItems — prepended before table items (e.g. "✏️ 输入 SQL…"
- *   for merged query entry).
+ * @param extraItems —— 前置在表项之前（如 "✏️ 输入 SQL…"）
+ *   用于合并的查询入口）。
  *
- * Shared by schema, query, relations-add, and relations-er-diagram handlers.
+ * 由 schema、query、relations-add 和 relations-er-diagram 处理器共享。
  */
 export async function pickTableFuzzy(
   ctx: ExtensionCommandContext,
@@ -48,10 +48,10 @@ export async function pickTableFuzzy(
     const container = new Container();
     const reducer = createFilterReducer();
 
-    // Top border
+    // 上边框
     container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
-    // Title
+    // 标题
     container.addChild(
       new Text(
         theme.fg("accent", theme.bold(`📋 ${prompt}`)) +
@@ -61,11 +61,11 @@ export async function pickTableFuzzy(
       ),
     );
 
-    // Filter hint line — updates as the user types
+    // 过滤提示行——随用户输入更新
     const filterLine = new Text(theme.fg("muted", "> "), 1, 0);
     container.addChild(filterLine);
 
-    // SelectList with built-in fuzzy filtering
+    // 带内置模糊过滤的 SelectList
     const selectList = new SelectList(items, Math.min(items.length, 14), {
       selectedPrefix: (t) => theme.fg("accent", t),
       selectedText: (t) => theme.fg("accent", theme.bold(t)),
@@ -77,7 +77,7 @@ export async function pickTableFuzzy(
     selectList.onCancel = () => done(void 0);
     container.addChild(selectList);
 
-    // Bottom border
+    // 下边框
     container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
     return {
@@ -97,7 +97,7 @@ export async function pickTableFuzzy(
           return;
         }
 
-        // navigate / none → delegate to SelectList for Enter/Esc/arrows
+        // navigate / none → 委托给 SelectList 处理 Enter/Esc/方向键
         selectList.handleInput(data);
         tui.requestRender();
       },
@@ -108,11 +108,11 @@ export async function pickTableFuzzy(
 }
 
 /**
- * Wrap an async operation with BorderedLoader (spinner + Esc cancel).
- * Returns undefined when the user cancels via Esc.
+ * 用 BorderedLoader 包裹异步操作（spinner + Esc 取消）。
+ * 用户按 Esc 取消时返回 undefined。
  *
- * @param onError — called when the operation fails; use it to show
- *   an error notification before the loader disappears.
+ * @param onError —— 操作失败时调用；用它显示错误通知，
+ *   在 loader 消失之前。
  */
 export async function withLoader<T>(
   ctx: ExtensionCommandContext,
@@ -131,7 +131,7 @@ export async function withLoader<T>(
           try {
             onError(err instanceof Error ? err : new Error(String(err)));
           } catch {
-            /* nop */
+            /* 空操作 */
           }
         }
         done(void 0);
@@ -144,9 +144,9 @@ export async function withLoader<T>(
 }
 
 /**
- * @deprecated Use pickTableFuzzy for single-step fuzzy selection instead.
+ * @deprecated 改用 pickTableFuzzy 做单步模糊选择。
  *
- * Interactive table picker: keyword input → filtered select.
+ * 交互式表选择器：关键词输入 → 过滤选择。
  */
 export async function pickTable(
   ctx: ExtensionCommandContext,

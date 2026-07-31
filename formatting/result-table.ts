@@ -1,17 +1,17 @@
 /**
- * Result-table formatting for /db query output.
+ * /db 查询输出的结果表格式化。
  *
- * Exports:
- * - analyzeColumns / ColumnStats — classify columns (visible / all-null / all-same)
- * - layoutColumns — adaptive column-width packing function
- * - formatTableDisplay — padded markdown table, adaptive to terminal width (TUI)
- * - formatTableCompact — token-efficient unpadded table with …[+N] markers (LLM)
- * - formatTableResult — alias of formatTableDisplay(120), backward compat
+ * 导出：
+ * - analyzeColumns / ColumnStats —— 列分类（可见 / 全空 / 全同）
+ * - layoutColumns —— 自适应列宽打包函数
+ * - formatTableDisplay —— 补空格 markdown 表，自适应终端宽度（TUI）
+ * - formatTableCompact —— 省 token 的无填充表，带 …[+N] 标记（LLM）
+ * - formatTableResult —— formatTableDisplay(120) 的别名，向后兼容
  */
 
 import type { SqlRow } from "../types";
 
-// ====== Types ======
+// ====== 类型 ======
 
 export interface ColumnStats {
   visible: string[];
@@ -24,7 +24,7 @@ export interface TableResult {
   rows: SqlRow[];
 }
 
-// ====== Column analysis ======
+// ====== 列分析 ======
 
 export function analyzeColumns(columns: string[], rows: SqlRow[]): ColumnStats {
   const visible: string[] = [];
@@ -59,7 +59,7 @@ export function analyzeColumns(columns: string[], rows: SqlRow[]): ColumnStats {
   return { visible, allNull, allSame };
 }
 
-// ====== Hidden-column note ======
+// ====== 隐藏列提示 ======
 
 function hiddenNote(stats: ColumnStats, maxWidth = 160): string {
   const NAME_CAP = 30;
@@ -92,28 +92,28 @@ function trimToWidth(s: string, max: number): string {
   return s.length > max ? s.slice(0, Math.max(0, max - 1)) + "…" : s;
 }
 
-// ====== Adaptive column-width packing ======
+// ====== 自适应列宽打包 ======
 
 /**
- * Distribute a horizontal pixel budget across column ideal widths.
+ * 在列的理想宽度之间分配水平像素预算。
  *
- * Works water-filling style: when total ideal widths exceed the budget,
- * repeatedly shrinks the widest column until the total fits or every column
- * hits the minimum (6 chars). If the budget is too tight for even minimum
- * widths the columns are squeezed proportionally from min.
+ * 采用注水式：当理想宽度总和超过预算时，
+ * 反复收缩最宽的列，直到总和合适或每列达到最小值（6 字符）。
+ * 若预算连最小宽度都放不下，则从最小值开始按比例压缩。
+ *
  */
 export function layoutColumns(idealWidths: number[], budget: number): number[] {
   const n = idealWidths.length;
   if (n === 0) return [];
 
   const MIN = 6;
-  // Overhead per horizontal markdown row: "| " + … + " | " + … + "|"
+  // 每行 markdown 的开销：“| ” + … + “ | ” + … + “|”
   const overhead = 3 * n + 1;
   const available = budget - overhead;
 
   const current = [...idealWidths];
 
-  // Even minimum widths don't fit — squeeze proportionally
+  // 连最小宽度都放不下——按比例压缩
   const minTotal = n * MIN;
   if (available < minTotal) {
     const scale = available / minTotal;
@@ -135,7 +135,7 @@ export function layoutColumns(idealWidths: number[], budget: number): number[] {
   return current;
 }
 
-// ====== Cell helpers ======
+// ====== 单元格辅助 ======
 
 function pad(s: string, w: number): string {
   if (s.length > w) return s.slice(0, Math.max(0, w - 1)) + "…";
@@ -155,7 +155,7 @@ function pickId(row: SqlRow, columns: string[]): string {
   return "";
 }
 
-// ====== Horizontal table (adaptive widths) ======
+// ====== 横向表（自适应宽度）======
 
 function formatHorizontal(
   cols: string[],
@@ -169,11 +169,11 @@ function formatHorizontal(
 
   const lines: string[] = [];
 
-  // Header
+  // 表头
   lines.push("| " + cols.map((c, i) => pad(c, widths[i])).join(" | ") + " |");
-  // Separator
+  // 分隔线
   lines.push("|" + widths.map((w) => "-".repeat(w + 2)).join("|") + "|");
-  // Data
+  // 数据
   for (const row of displayRows) {
     lines.push("| " + cols.map((c, i) => pad(cellString(row[c]), widths[i])).join(" | ") + " |");
   }
@@ -184,7 +184,7 @@ function formatHorizontal(
   return lines.join("\n");
 }
 
-// ====== Transposed (columns→rows, rows→columns; for wide but few rows) ======
+// ====== 转置（列→行、行→列；适用于宽但行少的表）======
 
 function formatTransposed(
   cols: string[],
@@ -202,9 +202,9 @@ function formatTransposed(
     return label.length > 22 ? label.slice(0, 19) + "…" : label;
   });
 
-  // Adaptive column-name width (capped at 24)
+  // 自适应列名宽度（上限 24）
   const colNameWidth = Math.min(24, Math.max(...cols.map((c) => c.length)));
-  // Cell widths: account for all " │ " separators between row headers
+  // 单元格宽度：计入行表头之间的所有 “ │ ” 分隔符
   const LEFT_OVERHEAD = 5; // "  " + " │ " before the first cell
   const BETWEEN_OVERHEAD = 3 * (rowHeaders.length - 1); // " │ " between cells
   const cellsBudget = Math.max(0, width - colNameWidth - LEFT_OVERHEAD - BETWEEN_OVERHEAD);
@@ -215,11 +215,11 @@ function formatTransposed(
 
   const lines: string[] = [];
 
-  // Header row: "  ColName │ Header1 Header2 …"
+  // 表头行：“  ColName │ Header1 Header2 …”
   lines.push(
     "  " + "".padEnd(colNameWidth) + " │ " + rowHeaders.map((h) => pad(h, cellWidth)).join(" │ "),
   );
-  // Separator
+  // 分隔线
   lines.push(
     "  " +
       "─".repeat(colNameWidth) +
@@ -227,7 +227,7 @@ function formatTransposed(
       rowHeaders.map(() => "─".repeat(cellWidth)).join("─┼─"),
   );
 
-  // One row per column
+  // 每列一行
   for (const col of cols) {
     const vals = displayRows.map((row) => pad(cellString(row[col]), cellWidth));
     lines.push("  " + col.padEnd(colNameWidth) + " │ " + vals.join(" │ "));
@@ -241,7 +241,7 @@ function formatTransposed(
   return lines.join("\n");
 }
 
-// ====== Vertical key-value per row (compressed, for wide + many rows) ======
+// ====== 每行纵向键值（压缩，适用于宽且多行）======
 
 function formatVertical(
   cols: string[],
@@ -253,7 +253,7 @@ function formatVertical(
   const MAX_DISPLAY = 5;
   const displayRows = rows.slice(0, MAX_DISPLAY);
   const labelWidth = Math.min(28, Math.max(...cols.map((c) => c.length)));
-  // Cap cell values to what fits after the label and separator
+  // 将单元格值截断到标签与分隔符之后能容纳的长度
   const VALUE_OVERHEAD = 7; // "  " + " │ "  (2 leading + 3 separator + 2 padding)
   const valueCap = Math.max(20, Math.min(60, width - labelWidth - VALUE_OVERHEAD));
   const lines: string[] = [];
@@ -274,7 +274,7 @@ function formatVertical(
   return lines.join("\n");
 }
 
-// ====== Vertical full (expanded mode — no truncation, all rows) ======
+// ====== 纵向完整（展开模式——不截断，全部行）======
 
 export function formatVerticalFull(columns: string[], rows: SqlRow[]): string[] {
   const labelWidth = Math.min(28, Math.max(...columns.map((c) => c.length)));
@@ -294,15 +294,15 @@ export function formatVerticalFull(columns: string[], rows: SqlRow[]): string[] 
   return lines;
 }
 
-// ====== Public entry points ======
+// ====== 公共入口 ======
 
 /**
- * Format a query result for TUI display. Adapts to the given terminal width:
- * - Tries a horizontal markdown table with adaptive column widths first.
- * - Falls back to a transposed layout when horizontal won't fit at min widths.
- * - Uses a vertical (key-value per row) layout for wide + many-row results.
+ * 为 TUI 显示格式化查询结果。自适应给定终端宽度：
+ * - 优先尝试带自适应列宽的横向 markdown 表。
+ * - 横向在最小宽度放不下时回退为转置布局。
+ * - 宽且多行的结果用纵向（每行键值）布局。
  *
- * Cell content is capped at 60 chars to avoid one outlier blowing up a column.
+ * 单元格内容上限 60 字符，避免单个异常值撑爆列宽。
  */
 export function formatTableDisplay(result: TableResult, width: number): string {
   if (result.rows.length === 0) return "（空结果）";
@@ -313,7 +313,7 @@ export function formatTableDisplay(result: TableResult, width: number): string {
   const cols = allHidden ? result.columns : stats.visible;
   const totalRows = result.rows.length;
 
-  // Compute per-column ideal content widths (header + first-page rows)
+  // 计算每列理想内容宽度（表头 + 首页行）
   const CELL_CAP = 60;
   const IDEAL_ROWS = 20;
   const ideal = cols.map((col) => {
@@ -325,18 +325,18 @@ export function formatTableDisplay(result: TableResult, width: number): string {
     return max;
   });
 
-  // Try horizontal — only if terminal is wide enough to be meaningful
+  // 先试横向——仅当终端足够宽、有展示意义时
   if (width >= 40) {
     const widths = layoutColumns(ideal, width);
     const minW = Math.min(...widths);
     const totalWidth = widths.reduce((a, b) => a + b, 0) + 3 * cols.length + 1;
-    // Allow narrow columns — 2 chars wide is enough for "id" or "1."
+    // 允许窄列——2 字符宽足够放 “id” 或 “1.”
     if (minW >= 2 && totalWidth <= width) {
       return formatHorizontal(cols, result.rows, totalRows, widths, note);
     }
   }
 
-  // Fall back to transposed (when few rows) or vertical
+  // 回退为转置（行少时）或纵向
   if (result.rows.length <= 10) {
     return formatTransposed(cols, result.rows, totalRows, note, width);
   }
@@ -344,11 +344,11 @@ export function formatTableDisplay(result: TableResult, width: number): string {
 }
 
 /**
- * Format a query result for LLM context — token-efficient and information-rich:
- * - No alignment padding (bare markdown).
- * - Cell cap 200 chars with explicit truncation marker …[+N] so the AI knows
- *   how much data was cut and can re-query for full values.
- * - All rows included (truncateHead at the tool level is the final guard).
+ * 为 LLM 上下文格式化查询结果——省 token 且信息丰富：
+ * - 不对齐填充（裸 markdown）。
+ * - 单元格上限 200 字符，带显式截断标记 …[+N]，让 AI 知道
+ *   被截掉多少数据、可以重新查询完整值。
+ * - 包含所有行（工具层的 truncateHead 是最后一道防线）。
  */
 export function formatTableCompact(result: TableResult): string {
   if (result.rows.length === 0) return "（空结果）";
@@ -361,11 +361,11 @@ export function formatTableCompact(result: TableResult): string {
   const CELL_CAP = 200;
   const lines: string[] = [];
 
-  // Header
+  // 表头
   lines.push("| " + cols.join(" | ") + " |");
-  // Separator
+  // 分隔线
   lines.push("| " + cols.map(() => "---").join(" | ") + " |");
-  // Data — no padding, all rows
+  // 数据——无填充，全部行
   for (const row of result.rows) {
     const cells = cols.map((col) => {
       const s = cellString(row[col]);
@@ -382,9 +382,9 @@ export function formatTableCompact(result: TableResult): string {
 }
 
 /**
- * Backward-compat alias — formats with a fixed 120-char budget for existing
- * callers that don't have a terminal width available.  New code should prefer
- * formatTableDisplay (TUI) or formatTableCompact (LLM).
+ * 向后兼容别名——为没有终端宽度的既有调用方按固定 120 字符预算格式化。
+ * 新代码应优先用 formatTableDisplay（TUI）或 formatTableCompact（LLM）。
+ *
  */
 export function formatTableResult(result: TableResult): string {
   return formatTableDisplay(result, 120);

@@ -1,7 +1,7 @@
 /**
- * /db relations — table relationship management.
+ * /db relations —— 表关系管理。
  *
- * Subcommands: add, remove, discover (FK sync), er-diagram.
+ * 子命令：add、remove、discover（FK 同步）、er-diagram。
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -10,7 +10,7 @@ import type { SqlRow } from "../types";
 import type { RelationRow } from "../relation/store";
 import { pickTableFuzzy, withLoader } from "./utils";
 
-// ── List formatting ─────────────────────────────────────────────
+// ── 列表格式化 ─────────────────────────────────────────────
 
 function formatRelationsList(rows: RelationRow[]): string {
   if (rows.length === 0) return "暂无表关联关系。";
@@ -27,7 +27,7 @@ function formatRelationsList(rows: RelationRow[]): string {
   return lines.join("\n");
 }
 
-// ── Entry point ─────────────────────────────────────────────────
+// ── 入口 ─────────────────────────────────────────────────
 
 export async function handleRelations(
   ctx: ExtensionCommandContext,
@@ -51,7 +51,7 @@ export async function handleRelations(
   }
 }
 
-// ── List ────────────────────────────────────────────────────────
+// ── 列表 ────────────────────────────────────────────────────────
 
 async function handleRelationsList(
   ctx: ExtensionCommandContext,
@@ -98,7 +98,7 @@ async function handleRelationsList(
   }
 }
 
-// ── Add ─────────────────────────────────────────────────────────
+// ── 添加 ─────────────────────────────────────────────────────────
 
 async function handleRelationsAdd(
   ctx: ExtensionCommandContext,
@@ -162,7 +162,7 @@ async function handleRelationsAdd(
   );
 }
 
-// ── Remove ──────────────────────────────────────────────────────
+// ── 删除 ──────────────────────────────────────────────────────
 
 async function handleRelationsRemove(
   ctx: ExtensionCommandContext,
@@ -198,7 +198,7 @@ async function handleRelationsRemove(
   }
 }
 
-// ── Discover (FK sync) ──────────────────────────────────────────
+// ── Discover（FK 同步）─────────────────────────────────────────
 
 async function handleRelationsDiscover(
   ctx: ExtensionCommandContext,
@@ -252,7 +252,7 @@ async function handleRelationsDiscover(
           }
           erLines.push(`  }`);
         } catch {
-          // skip
+          // 跳过
         }
       }
 
@@ -296,7 +296,7 @@ async function handleRelationsDiscover(
   ctx.ui.notify(parts.join("\n"), "info");
 }
 
-// ── ER Diagram ──────────────────────────────────────────────────
+// ── ER 图 ──────────────────────────────────────────────────
 
 async function handleRelationsERDiagram(
   ctx: ExtensionCommandContext,
@@ -339,7 +339,7 @@ async function handleRelationsERDiagram(
       const info = await ws.getTableSchema(relatedTable);
       allColumns.set(relatedTable, info.columns);
     } catch {
-      // skip
+      // 跳过
     }
   }
 
@@ -368,9 +368,9 @@ async function handleRelationsERDiagram(
 
   const erDiagram = lines.join("\n");
 
-  // display: true → persistent in the chat; the default markdown renderer
-  // shows the mermaid source as a code block and the LLM can read it too.
-  // deliverAs "followUp" commits immediately when the agent is idle.
+  // display: true → 在聊天中持久显示；默认 markdown 渲染器
+  // 把 mermaid 源码显示为代码块，LLM 也能读取。
+  // deliverAs "followUp" 在 agent 空闲时立即提交。
   pi.sendMessage(
     {
       customType: "db-er-diagram",
