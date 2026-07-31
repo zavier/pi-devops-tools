@@ -1,31 +1,87 @@
 ---
 name: db-explore
 description: >
-  Systematic database exploration workflow. Use this skill whenever the user
-  wants to explore a new or unfamiliar MySQL database, understand its schema,
-  discover table relationships, or get oriented before writing queries. Also
-  use when the user asks "what tables are here", "show me the database
-  structure", "how is this database organized", "find relationships between
-  tables", or any open-ended database inspection task. This skill turns
-  ad-hoc exploration into a repeatable, efficient process.
+  This skill should be used for any database interaction — both exploration
+  ("explore a database", "show me the database structure", "what tables are
+  here", "how is this database organized", "find relationships") and CRUD
+  queries ("查一下", "查询", "找一下", "帮我查", "find records",
+  "show me data from", "插入数据", "更新记录", "看一下表里的数据"). Provides a fast one-shot query
+  path for known tables, plus a systematic six-phase workflow for exploring
+  unfamiliar MySQL databases.
 ---
 
 # Database Exploration
 
-Systematic workflow for exploring a MySQL database through the `db_*` tools.
-
 ## Philosophy
 
-Don't dump every table at once. Start broad, narrow by relevance, and build up a mental model incrementally. The goal is understanding, not enumeration.
+**For exploration**: start broad, narrow by relevance, and build up a mental model incrementally. The goal is understanding, not enumeration.
+
+**For fast queries**: trust the user's table/column names, query directly, and only verify on failure. The goal is speed, not completeness.
+
+## Available Tools
+
+All exploration uses the `db_*` tool family:
+
+| Tool                | Purpose in exploration                                             | Phase                              |
+| ------------------- | ------------------------------------------------------------------ | ---------------------------------- |
+| `db_discover`       | List configured connections and discover databases on a connection | 1 — Orient                         |
+| `db_list_tables`    | List all tables in the target database                             | 2 — Survey                         |
+| `db_table_schema`   | Show columns, types, and indexes for a specific table              | 3 — Inspect                        |
+| `db_query`          | Execute read-only SQL (SELECT, EXPLAIN)                            | Fast path, 4 — Sample, 5 — Connect |
+| `db_mutate`         | Execute INSERT/UPDATE/DELETE/REPLACE (confirmation gated)          | Fast path                          |
+| `db_list_relations` | List registered table relationships                                | 5 — Connect                        |
+| `db_relation`       | Register new relationships (action="register")                     | 5 — Connect                        |
+
+All read tools default to the workspace selection but accept optional `connection` and `database` overrides. `db_relation` accepts a `database` override.
 
 ## Core workflow
 
+### Workflow at a glance
+
+| Phase       | Tool calls | Typical time |
+| ----------- | ---------- | ------------ |
+| Fast path   | 1-3        | <5s          |
+| 1 — Orient  | 1          | <2s          |
+| 2 — Survey  | 1          | <2s          |
+| 3 — Inspect | 3-5        | 5-10s        |
+| 4 — Sample  | 3-5        | 5-10s        |
+| 5 — Connect | 3-12       | 10-30s       |
+| 6 — Report  | 0          | —            |
+
+**Typical total: ~10-20 tool calls, 30-60 seconds.**
+
+### Fast path — for CRUD queries
+
+When the user asks a concrete data question with known table/column names, skip directly to querying:
+
+1. **Orient** (if needed): if the target database isn't the current workspace selection, call `db_discover` once to confirm. Skip if the workspace is already set.
+2. **Execute**:
+   - Reads → `db_query` (LIMIT auto-appended, result truncated at 50KB / 2000 lines)
+   - Writes → `db_mutate` (INSERT/UPDATE/DELETE/REPLACE; a confirmation dialog gates every execution)
+3. **On failure**: if the query errors with "table not found" or "unknown column", call `db_table_schema` for the most likely table, find the correct name, then retry. If the table doesn't exist at all, fall back to Phase 2 (Survey).
+
+**Examples** (no schema preamble needed):
+
+- "查一下 users 表里 status 是 active 的用户" → `SELECT * FROM users WHERE status = 'active' LIMIT 100`
+- "给 orders 表插一条测试数据" → `INSERT INTO orders (user_id, total) VALUES (1, 99.90)`
+- "find all products with price > 100" → `SELECT * FROM products WHERE price > 100 LIMIT 100`
+
 ### Phase 1 — Orient
 
-**Goal**: confirm which connection and database you're targeting.
+**Goal**: confirm the target connection and database.
 
 1. Call `db_discover` without parameters to see current connection + available databases.
 2. If the target isn't the current workspace selection, note the `connection` and `database` values for override params.
+
+### Before proceeding — check the goal
+
+After Phase 1, if the user has stated a specific goal, adjust the focus of subsequent phases:
+
+- **Analytics/reporting**: in Phase 2, prioritize fact tables (high row count, many FK columns). Skip small lookup tables.
+- **CRUD/application development**: prioritize entity tables and their direct FK dependencies. Sample with `SELECT * LIMIT 3` per table.
+- **Migration/audit**: in Phase 2, flag deprecated-looking tables (`_old`, `_bak`, `_archive`). In Phase 3, note nullable columns that should be NOT NULL and missing indexes on FK columns.
+- **Performance investigation**: in Phase 3, pay extra attention to index coverage. In Phase 4, use `EXPLAIN` on the slow query.
+- **General exploration** (no specific goal): follow the default six-phase workflow below.
 
 ### Phase 2 — Survey
 
@@ -61,7 +117,7 @@ Don't dump every table at once. Start broad, narrow by relevance, and build up a
 2. Check:
    - Do column values match the inferred semantics? (e.g., `status` values, `type` enums)
    - Are FK columns populated or mostly NULL?
-   - Are there soft-delete columns (`deleted_at`, `is_active`)?
+   - Are there soft-delete columns? Common names: `deleted_at`, `is_deleted`, `is_active`, `deleted`, `archived_at`, `istatus`. Also check `status` columns for values like `'deleted'` or `'archived'`.
 
 ### Phase 5 — Connect
 
@@ -71,6 +127,7 @@ Don't dump every table at once. Start broad, narrow by relevance, and build up a
 2. For each core table, look at column names ending in `_id`:
    - `user_id` → likely references `users.id`
    - `order_id` → likely references `orders.id`
+     For bulk FK discovery across all tables, query `information_schema.COLUMNS` with `WHERE COLUMN_NAME LIKE '%\_id'`. The `\_` escapes the underscore — without it, `_` matches any single character.
 3. For each candidate FK pair, verify by checking:
    - The referenced table exists (from phase 2)
    - The column types match (from phase 3 schemas)
@@ -89,7 +146,7 @@ Don't dump every table at once. Start broad, narrow by relevance, and build up a
 
 **Goal**: summarize findings so the user can act.
 
-Present a structured summary:
+Present a structured summary. For row counts, query `information_schema.TABLES` (approximate for InnoDB, instantaneous) or run `SELECT COUNT(*)` for exact counts:
 
 ```
 ## Database: <name> (@<connection>)
@@ -97,8 +154,8 @@ Present a structured summary:
 ### Core tables (N of M total)
 | Table | Rows (est) | Key columns | FK to |
 |-------|-----------|-------------|-------|
-| users | ? | id, email, name | — |
-| orders | ? | id, user_id, total | users.id |
+| users | 1.2K | id, email, name | — |
+| orders | 8.5K | id, user_id, total | users.id |
 
 ### Discovered relationships
 | From | To | Type |
@@ -110,38 +167,48 @@ Present a structured summary:
 - Query <table> for <specific analysis>
 ```
 
+## Edge Cases
+
+Common failure modes and how to handle them:
+
+**No configured connections** — `db_discover` returns an empty list.
+→ Tell the user to add a connection in `~/.pi/database/connections.yaml`. No further action possible.
+
+**Workspace not set** — `db_discover` shows connections but no current database selected.
+→ Pick the first connection, list its databases, and ask the user which one to target.
+
+**Empty database** — `db_list_tables` returns zero tables.
+→ Report "database `<name>` has no tables" and end the workflow here.
+
+**Very large schema (50+ tables)** — Phase 2 produces an overwhelming list.
+→ Query `information_schema.TABLES` for row counts first. Focus on the top 15-20 tables by `TABLE_ROWS`. Skip zero-row tables unless the user asks about them.
+
+**No FK candidates found** — Phase 5 finds no `*_id` columns or all candidate pairs fail verification.
+→ Report "no column-naming FK candidates found." Suggest running `/db relations discover` for system-declared foreign keys, or ask the user about implicit relationships.
+
+**Connection refused or timeout** — any tool call fails with a network error.
+→ Report the error. Check connectivity with `scripts/workspace-status.sh`. Wait for the user to confirm before retrying — they may need to check VPN, credentials, or the MySQL server status.
+
 ## Anti-patterns to avoid
 
-- **Schema dump**: don't call `db_table_schema` on every table — focus on core entities.
-- **Blind queries**: don't write complex JOINs before checking column types and FK existence.
-- **Relation spam**: don't register every `*_id` column as a relation — verify the referenced table and column exist first.
+- **Schema dump**: inspect only core tables and their FK targets. Skip lookup tables unless they sit at the end of a foreign key.
+- **Blind queries**: verify column types and FK existence, then write JOINs.
+- **Relation spam**: register only verified FK pairs — confirm the referenced table and column exist first.
 - **Single-table tunnel vision**: after inspecting one table, check what it connects to.
 
 ## When to go deeper
 
-After the core workflow, branch out based on the user's goal:
+After the core workflow and report, branch out based on the user's goal (adjusted from the Phase 1 goal check):
 
-- **Analytics/reporting**: focus on fact tables (high row count, many FKs) → dimension tables
-- **CRUD/application**: focus on entity tables → their FK dependencies
-- **Migration/audit**: inspect all tables, note deprecated columns, find missing indexes
-- **Performance**: use `EXPLAIN` via `db_query` on common queries, check index coverage from phase 3
+- **Analytics/reporting**: trace fact tables → dimension tables via registered relationships. Run `db_query` with aggregations (COUNT, SUM, GROUP BY) on high-row-count tables.
+- **CRUD/application**: map the full entity graph — for each core table, trace all FK dependencies one level out using `db_list_relations` and test JOINs.
+- **Migration/audit**: inspect ALL tables (not just core), note deprecated columns, find tables missing primary keys (`SHOW INDEX` or `information_schema.STATISTICS`), check for soft-delete patterns.
+- **Performance**: use `EXPLAIN` via `db_query` on common queries. Check index coverage with `SHOW INDEX FROM table_name`. Look for missing indexes on FK columns discovered in Phase 5.
 
 ## Scripts
 
-Helper scripts for supplementary inspection outside the tool workflow.
+**`scripts/workspace-status.sh`** — Check the current database workspace state (connection, database, relations count, query history, favorites, and configured connections) without making a tool call. Run when:
 
-### Check workspace state
-
-```bash
-cat ~/.pi/database/workspace.json 2>/dev/null | python3 -m json.tool
-```
-
-Shows current connection and database selection without a tool call.
-
-### Check relations count
-
-```bash
-sqlite3 ~/.pi/database/state.db "SELECT COUNT(*) AS relation_count FROM table_relations;"
-```
-
-Quick check of how many relations are registered. For detailed listing, use `db_list_relations`.
+- Unsure which connection/database is currently selected and want a quick overview before calling `db_discover`
+- Debugging tool call failures by confirming the underlying state
+- Need a summary of all configured connections at a glance
