@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, existsSync, renameSync } from "node:fs";
 
-const DEFAULT_BASE = join(homedir(), ".pi", "database");
+export const DEFAULT_BASE = join(homedir(), ".pi", "database");
 
 export class StateStore {
   readonly baseDir: string;

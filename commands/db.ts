@@ -20,6 +20,7 @@ import { handleQuery } from "./query";
 import { handleHistory } from "./history";
 import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
+import { writeToggle } from "../state/extension-toggle";
 
 // ====== 自动补全项类型（结构上匹配 pi-tui AutocompleteItem）======
 
@@ -40,15 +41,41 @@ const SUBCOMMANDS = [
   "history",
   "favorite",
   "relations",
+  "on",
+  "off",
 ] as const;
 
 export function registerDbCommand(
   pi: ExtensionAPI,
   getWorkspace: () => DatabaseWorkspaceService,
+  enabled: boolean,
+  toggleBaseDir: string,
 ): void {
+  // 禁用态：只注册精简版 /db——唯一入口是 on（重新启用）。
+  // 命令不进模型上下文，零成本；不初始化 workspace（on 分支不需要）。
+  if (!enabled) {
+    pi.registerCommand("db", {
+      description: "Database extension is disabled. Run /db on to enable.",
+      getArgumentCompletions: async (prefix) => {
+        const sub = prefix.trim().split(/\s+/)[0] ?? "";
+        return ["on"].filter((s) => s.startsWith(sub)).map((s) => ({ value: `${s} `, label: s }));
+      },
+      handler: async (args, ctx) => {
+        if (!ctx.hasUI) return;
+        const sub = args.trim().split(/\s+/).find(Boolean);
+        if (sub === "on") {
+          await handleToggle(ctx, true, toggleBaseDir);
+        } else {
+          ctx.ui.notify("数据库扩展已禁用，运行 /db on 启用。", "warning");
+        }
+      },
+    });
+    return;
+  }
+
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations",
+      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | on | off",
 
     getArgumentCompletions: async (prefix) => {
       return getCompletions(prefix, getWorkspace());
@@ -93,6 +120,12 @@ export function registerDbCommand(
           break;
         case "relations":
           await handleRelations(ctx, ws, pi, rest);
+          break;
+        case "on":
+          await handleToggle(ctx, true, toggleBaseDir);
+          break;
+        case "off":
+          await handleToggle(ctx, false, toggleBaseDir);
           break;
         default:
           ctx.ui.notify(`未知命令: ${sub}。可用：${SUBCOMMANDS.join(", ")}`, "warning");
@@ -329,6 +362,19 @@ async function dispatchAction(
       await handleRelations(ctx, ws, pi, rest);
       break;
   }
+}
+
+// ====== 开关 ================================================
+
+/** 切换扩展启用状态：写标志后 reload，工厂重跑自然生效（旧 ctx 此后失效）。 */
+async function handleToggle(
+  ctx: ExtensionCommandContext,
+  enabled: boolean,
+  baseDir: string,
+): Promise<void> {
+  writeToggle(baseDir, enabled);
+  ctx.ui.notify(`数据库扩展已${enabled ? "启用" : "禁用"}，正在重载…`, "info");
+  await ctx.reload();
 }
 
 // ====== 状态栏辅助 ======
