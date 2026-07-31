@@ -5,7 +5,7 @@
  * these to decide which lazily-loaded database tools to enable. Kept separate
  * so the keyword matching is testable with plain values.
  *
- * Active set:  db_query, db_list_tables, db_table_schema, db_mutate, db_tools
+ * Active set:  db_query, db_tables, db_mutate, db_tools
  * Lazy (on demand via the db_tools loader): db_discover, db_list_relations, db_relation
  */
 

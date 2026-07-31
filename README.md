@@ -175,13 +175,12 @@ connections:
 
 ## LLM 工具
 
-扩展注册了 8 个工具（6 个只读 + 2 个写操作：`db_relation` 写本地 SQLite，`db_mutate` 写 MySQL），AI 可以直接调用而无需用户输入 `/db` 命令。其中 3 个工具默认不激活（按需加载），以控制上下文占用：
+扩展注册了 7 个工具（5 个只读 + 2 个写操作：`db_relation` 写本地 SQLite，`db_mutate` 写 MySQL），AI 可以直接调用而无需用户输入 `/db` 命令。其中 3 个工具默认不激活（按需加载），以控制上下文占用：
 
 | 工具名              | 类型   | 激活 | 描述                                                                                        |
 | ------------------- | ------ | ---- | ------------------------------------------------------------------------------------------- |
 | `db_query`          | 只读   | 常驻 | 执行只读 SQL 查询（与 `/db query` 相同的安全限制）                                          |
-| `db_list_tables`    | 只读   | 常驻 | 列出指定数据库的所有表（实时查询）                                                          |
-| `db_table_schema`   | 只读   | 常驻 | 查看指定表的结构（列、索引）                                                                |
+| `db_tables`         | 只读   | 常驻 | 列出数据库的所有表；传 `table` 查看该表的结构（列、索引，实时查询）                         |
 | `db_mutate`         | **写** | 常驻 | 执行 INSERT/UPDATE/DELETE/REPLACE，每次弹出确认弹窗需人工批准                               |
 | `db_tools`          | 只读   | 常驻 | 按需启用下方 3 个懒加载工具（loader，下一轮生效）                                           |
 | `db_discover`       | 只读   | 按需 | 发现可用的连接和数据库 — 探索入口。返回已配置的连接及其数据库                               |
@@ -190,7 +189,7 @@ connections:
 
 `db_discover`、`db_list_relations`、`db_relation` 默认不激活；需要时先调用 `db_tools`（query 填 "discover" 或 "relations"），下一轮起即可用。
 
-只读工具遵循与用户命令相同的只读保护：只能执行 SELECT/SHOW/DESCRIBE/EXPLAIN，DELETE/DROP/UPDATE 等写操作会被拒绝。`db_query`、`db_list_tables`、`db_table_schema` 支持可选的 `connection`/`database` 参数以跨库/跨连接查询。
+只读工具遵循与用户命令相同的只读保护：只能执行 SELECT/SHOW/DESCRIBE/EXPLAIN，DELETE/DROP/UPDATE 等写操作会被拒绝。`db_query`、`db_tables` 支持可选的 `connection`/`database` 参数以跨库/跨连接查询。
 
 `db_mutate` 用于数据修改：DDL（CREATE/DROP/ALTER/TRUNCATE）被硬性拒绝，UPDATE/DELETE 无 WHERE 时会显示警告。每次调用弹出 overlay 确认弹窗（Enter 确认 / Esc 取消），不可跳过。
 

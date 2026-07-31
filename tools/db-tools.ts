@@ -38,7 +38,7 @@ function truncate(text: string): string {
   );
 }
 
-/** Optional target override shared by db_query / db_list_tables / db_table_schema. */
+/** Optional target override shared by db_query / db_tables. */
 const targetParams = {
   connection: Type.Optional(
     Type.String({
@@ -82,11 +82,11 @@ export function registerDbTools(
       "db_discover (connections and databases), db_list_relations (registered table " +
       "relationships), db_relation (register or delete relationships). Call this when a " +
       "task needs one of these capabilities — enabled tools become available from the " +
-      "next turn. db_query, db_list_tables, db_table_schema, and db_mutate are always active.",
+      "next turn. db_query, db_tables, and db_mutate are always active.",
     promptSnippet: "Enable additional database tools (discover, relations) when needed",
     promptGuidelines: [
       "Call db_tools to enable db_discover, db_list_relations, or db_relation when a task needs them — they are loaded on demand to keep the tool set small.",
-      "db_query, db_list_tables, db_table_schema, and db_mutate are always available.",
+      "db_query, db_tables, and db_mutate are always available.",
       "After enabling db_discover, use it instead of reading the connections config file directly (it contains credentials).",
     ],
     parameters: Type.Object({
@@ -194,8 +194,8 @@ export function registerDbTools(
       "Discover available connections and databases — the entry point for exploration. " +
       "Returns all configured connections (IDs, environments, default databases) plus " +
       "the databases on a given connection. Use this first to learn what connection " +
-      "and database values are valid for the optional params of db_query, db_list_tables, " +
-      "and db_table_schema. Never read the connections config file directly " +
+      "and database values are valid for the optional params of db_query and db_tables. " +
+      "Never read the connections config file directly " +
       "(e.g. ~/.pi/database/connections.yaml) — it contains credentials; this tool returns " +
       "the same information redacted.",
     // Lazily loaded via db_tools — no promptSnippet/promptGuidelines so
@@ -230,46 +230,20 @@ export function registerDbTools(
   });
 
   pi.registerTool({
-    name: "db_list_tables",
-    label: "DB List Tables",
+    name: "db_tables",
+    label: "DB Tables",
     description:
-      "List tables in a database (live query). Defaults to the currently selected " +
-      "database; pass connection/database to list tables elsewhere.",
-    promptSnippet: "List tables in the selected database",
-    promptGuidelines: ["Use db_list_tables before guessing table names in db_query."],
-    parameters: Type.Object({ ...targetParams }),
-    async execute(_toolCallId, params) {
-      const ws = ready(!!(params.connection && params.database));
-      const target = ws.resolveTarget({
-        connectionId: params.connection,
-        database: params.database,
-      });
-      const tables = await ws.getTables(target);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Tables in ${target.connectionId}/${target.database} (${tables.length}):\n${tables.join("\n")}`,
-          },
-        ],
-        details: { connection: target.connectionId, database: target.database, tables },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "db_table_schema",
-    label: "DB Table Schema",
-    description:
-      "Show the columns and indexes of a table (live query). Defaults to the currently " +
-      "selected database; pass connection/database to inspect a table elsewhere — e.g. " +
-      "before writing a cross-database db.table join.",
-    promptSnippet: "Show columns and indexes of a table",
+      "List tables in a database, or inspect one table's columns and indexes (live query). " +
+      "Without `table`: returns the table list of the target database. With `table`: returns " +
+      "the full schema — columns (name, type, nullable, key, comment) and indexes — formatted " +
+      "as Markdown. Defaults to the currently selected database; pass connection/database to " +
+      "target elsewhere.",
+    promptSnippet: "List tables, or show a table's columns and indexes",
     promptGuidelines: [
-      "Use db_table_schema to check column names and types before writing SQL for db_query.",
+      "List tables before guessing table names in db_query; pass table to check columns and types before writing SQL.",
     ],
     parameters: Type.Object({
-      table: Type.String({ description: "Table name" }),
+      table: Type.Optional(Type.String({ description: "Table name. Omit to list tables." })),
       ...targetParams,
     }),
     async execute(_toolCallId, params) {
@@ -278,19 +252,36 @@ export function registerDbTools(
         connectionId: params.connection,
         database: params.database,
       });
-      const { columns, indexes } = await ws.getTableSchema(params.table, target);
+      // Unified details shape — the two modes differ only in which field is set.
+      const details: {
+        connection: string;
+        database: string;
+        table?: string;
+        tables?: string[];
+      } = { connection: target.connectionId, database: target.database };
+      if (params.table) {
+        const { columns, indexes } = await ws.getTableSchema(params.table, target);
+        details.table = params.table;
+        return {
+          content: [
+            {
+              type: "text",
+              text: truncate(formatSchemaMarkdown(params.table, target.database, columns, indexes)),
+            },
+          ],
+          details,
+        };
+      }
+      const tables = await ws.getTables(target);
+      details.tables = tables;
       return {
         content: [
           {
             type: "text",
-            text: truncate(formatSchemaMarkdown(params.table, target.database, columns, indexes)),
+            text: `Tables in ${target.connectionId}/${target.database} (${tables.length}):\n${tables.join("\n")}`,
           },
         ],
-        details: {
-          connection: target.connectionId,
-          database: target.database,
-          table: params.table,
-        },
+        details,
       };
     },
   });

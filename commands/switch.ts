@@ -183,7 +183,7 @@ export async function handleSwitch(
   pi.sendMessage(
     {
       customType: "db-active-db",
-      content: `Current database: ${database} (connection: ${connectionId}, environment: ${env}). Use db_query, db_list_tables, and db_table_schema to query this database.`,
+      content: `Current database: ${database} (connection: ${connectionId}, environment: ${env}). Use db_query and db_tables to query this database.`,
       display: false,
     },
     { deliverAs: "followUp", triggerTurn: false },
