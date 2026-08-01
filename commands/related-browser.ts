@@ -182,8 +182,9 @@ export async function openRelatedBrowser(
       /** 最近一次渲染的 overlay 宽度——build 用它计算表格布局宽度。 */
       let lastWidth = 80;
 
-      // Box 提供不透明背景（customMessageBg）与统一内边距。
-      const box = new Box(1, 1, (s) => theme.bg("customMessageBg", s));
+      // Box 提供不透明背景（selectedBg：两主题下均为中性蓝灰，
+      // 与聊天区/终端底色区分明显）与统一内边距。
+      const box = new Box(1, 1, (s) => theme.bg("selectedBg", s));
       box.addChild(new DynamicBorder((s) => theme.fg("borderAccent", s)));
 
       const titleText = new Text("", 0, 0);
@@ -237,7 +238,14 @@ export async function openRelatedBrowser(
         if (content.empty) {
           tableText.setText(theme.fg("warning", "（空结果）"));
         } else {
-          tableText.setText(content.table.slice(scroll, scroll + viewport).join("\n"));
+          // 表格行是纯文本（无 ANSI）——显式套主题 text 前景色，
+          // 避免继承终端默认前景色（浅色主题下会出现白字浅底）。
+          tableText.setText(
+            content.table
+              .slice(scroll, scroll + viewport)
+              .map((line) => theme.fg("text", line))
+              .join("\n"),
+          );
         }
 
         footerText.setText(
