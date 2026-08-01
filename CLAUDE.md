@@ -85,12 +85,11 @@ formatting/        ← formatTableResult —— 自动布局：横向 / 转置 /
 - **TUI**：`pi.appendEntry("db-query-result", data)` + `registerEntryRenderer` → 自适应宽度 Component（横向/转置/纵向，列宽打包用 `layoutColumns`）。`ctrl+o` 展开为完整纵向输出。
 - **LLM 上下文**：`pi.sendMessage({ display: false, ... })` → `formatTableCompact`——无填充的 markdown，200 字符单元格上限加 `…[+N]` 标记，包含所有行。
 
-| customType           | 渲染器                                                            |
-| -------------------- | ----------------------------------------------------------------- |
-| `db-query-result`    | Entry 渲染器：表头 + SQL + 自适应表格；关联表提示；展开看完整行。 |
-| `db-workspace-panel` | Message 渲染器：原始预格式化文本（面板不是 markdown）。           |
+| customType        | 渲染器                                                            |
+| ----------------- | ----------------------------------------------------------------- |
+| `db-query-result` | Entry 渲染器：表头 + SQL + 自适应表格；关联表提示；展开看完整行。 |
 
-其他（`db-tables`、`db-table-schema`、`db-er-diagram`）使用默认自定义消息渲染（紫色框 + markdown）——内容小且适合 markdown。
+其他（`db-tables`、`db-table-schema`）使用默认自定义消息渲染（紫色框 + markdown）——内容小且适合 markdown。
 
 ### 关系图数据流
 
