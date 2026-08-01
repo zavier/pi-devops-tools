@@ -2,7 +2,7 @@
  * DatabaseWorkspaceService —— /db 命令背后的唯一模块。
  *
  * 将 WorkspaceContext（状态、切换、schema 缓存）和 QueryRunner
- * （查询执行、历史、lastSql）吸收进一个深度模块。所有委托都是私有字段——
+ * （查询执行、历史）吸收进一个深度模块。所有委托都是私有字段——
  * 命令只能通过下面列出的方法穿越外部接缝。
  */
 
@@ -15,6 +15,7 @@ import {
   type ResolvedConnectionConfig,
 } from "../connection/db-config";
 import { DatabaseConnectionManager } from "../connection/db-manager";
+import { prepareMutationQuery } from "../connection/sql-policy";
 import {
   QueryHistoryStore,
   FavoriteStore,
@@ -40,6 +41,27 @@ export interface QueryTarget {
   connectionId: string;
   database: string;
 }
+
+/** 写操作确认请求：校验结果 + 解析后的目标，由 facade 合并后交给确认回调。 */
+export interface MutationApprovalRequest {
+  sql: string;
+  operation: "INSERT" | "UPDATE" | "DELETE" | "REPLACE";
+  warning?: string;
+  connectionId: string;
+  database: string;
+}
+
+/** 写操作结果：用户拒绝是正常结果（rejected），非异常。 */
+export type MutationOutcome =
+  | { status: "rejected"; sql: string }
+  | {
+      status: "executed";
+      affectedRows: number;
+      elapsed: string;
+      sql: string;
+      connectionId: string;
+      database: string;
+    };
 
 // ====== 持久化辅助 ======
 
@@ -83,8 +105,11 @@ export class DatabaseWorkspaceService {
 
   // ── 内部状态 ─────────────────────────────────────────────
 
-  current: WorkspaceState | null;
-  private _lastSql: string | null = null;
+  private currentState: WorkspaceState | null;
+
+  get current(): WorkspaceState | null {
+    return this.currentState;
+  }
 
   // ── 构造函数 ────────────────────────────────────────────────
 
@@ -97,7 +122,7 @@ export class DatabaseWorkspaceService {
     this.history = new QueryHistoryStore(this.store.sqlite);
     this.favorites = new FavoriteStore(this.store.sqlite);
     this.relationGraph = new RelationGraph(this.store.sqlite);
-    this.current = loadWorkspace(this.store.workspaceFile);
+    this.currentState = loadWorkspace(this.store.workspaceFile);
   }
 
   // ── 配置重载 ────────────────────────────────────────────
@@ -192,12 +217,6 @@ export class DatabaseWorkspaceService {
     return `🗄 ${this.current.environment}/${this.current.database}`;
   }
 
-  // ── lastSql ────────────────────────────────────────────────────
-
-  get lastSql(): string | null {
-    return this._lastSql;
-  }
-
   // ── 环境 / 连接查找 ────────────────────────────────────────────
 
   getEnvironments(): string[] {
@@ -224,8 +243,8 @@ export class DatabaseWorkspaceService {
   // ── 切换 ─────────────────────────────────────────────────────
 
   switchTo(environment: string, connectionId: string, database: string): void {
-    this.current = { environment, connectionId, database };
-    saveWorkspace(this.store.workspaceFile, this.current);
+    this.currentState = { environment, connectionId, database };
+    saveWorkspace(this.store.workspaceFile, this.currentState);
   }
 
   // ── 目标解析 ──────────────────────────────────────────────────
@@ -334,7 +353,12 @@ export class DatabaseWorkspaceService {
     if (autoJoin && result.rows.length > 0) {
       try {
         related = await this.relationGraph.bfsQuery(
-          (s, params) => this.manager.executeQuery(connectionId, database, s, { params }),
+          async (s, params) => {
+            const { rows, elapsed } = await this.manager.executeQuery(connectionId, database, s, {
+              params,
+            });
+            return { rows, elapsed };
+          },
           database,
           table,
           result.rows,
@@ -349,26 +373,44 @@ export class DatabaseWorkspaceService {
     return { ...result, related };
   }
 
-  // ── 变更 ───────────────────────────────────────────────────
+  // ── 变更（唯一写入口）────────────────────────────────
 
   /**
-   * 执行数据变更（INSERT/UPDATE/DELETE/REPLACE）。
-   * 绕过只读守卫——调用方必须自行落实批准门。
+   * 执行数据变更（INSERT/UPDATE/DELETE/REPLACE）——唯一写路径，持有完整仪式：
+   * 校验（DDL 直接抛 MutationValidationError，不进入确认）→ 人工确认 →
+   * 执行。确认回调由调用方注入（生产 = showMutationConfirm，测试 = stub），
+   * facade 保持 pi-free。用户拒绝是正常结果（status: "rejected"），非异常。
    */
-  async executeMutation(
+  async executeMutationWithApproval(
     sql: string,
-    opts?: { connectionId?: string; database?: string },
-  ): Promise<{
-    affectedRows: number;
-    elapsed: string;
-    sql: string;
-    connectionId: string;
-    database: string;
-  }> {
+    opts: { connectionId?: string; database?: string },
+    confirm: (req: MutationApprovalRequest) => Promise<boolean>,
+  ): Promise<MutationOutcome> {
+    const validation = prepareMutationQuery(sql);
     const target = this.resolveTarget(opts);
-    const result = await this.manager.executeMutation(target.connectionId, target.database, sql);
-    this._lastSql = sql;
-    return { ...result, connectionId: target.connectionId, database: target.database };
+
+    const approved = await confirm({
+      sql: validation.sql,
+      operation: validation.operation,
+      warning: validation.warning,
+      connectionId: target.connectionId,
+      database: target.database,
+    });
+    if (!approved) {
+      return { status: "rejected", sql: validation.sql };
+    }
+
+    const result = await this.manager.executeMutation(
+      target.connectionId,
+      target.database,
+      validation.sql,
+    );
+    return {
+      status: "executed",
+      ...result,
+      connectionId: target.connectionId,
+      database: target.database,
+    };
   }
 
   // ── 历史 ────────────────────────────────────────────────────
@@ -380,7 +422,6 @@ export class DatabaseWorkspaceService {
         ? { connectionId: this.current.connectionId, database: this.current.database }
         : null);
     if (!t) throw new Error("No database selected");
-    this._lastSql = sql;
     return this.history.save({
       connectionId: t.connectionId,
       environment:
@@ -399,10 +440,6 @@ export class DatabaseWorkspaceService {
     if (keyword) filter.keyword = keyword;
     if (this.current) filter.database = this.current.database;
     return this.history.list(filter);
-  }
-
-  getHistoryById(id: number): HistoryEntry | undefined {
-    return this.history.getById(id);
   }
 
   deleteHistory(id: number): boolean {

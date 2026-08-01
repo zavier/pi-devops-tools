@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeRows, formatRelatedResults } from "../commands/query";
+import { sanitizeRows } from "../commands/query";
 import { formatRelationsList } from "../commands/relations";
 import { formatFavoriteList } from "../commands/favorites";
 import { formatEntry, entryToItem } from "../commands/history";
@@ -61,77 +61,6 @@ describe("sanitizeRows", () => {
 
   it("handles empty row list", () => {
     expect(sanitizeRows([])).toEqual([]);
-  });
-});
-
-// ====== formatRelatedResults ======
-
-describe("formatRelatedResults", () => {
-  it("returns empty string for no related results", () => {
-    expect(formatRelatedResults([])).toBe("");
-  });
-
-  it("renders table, join path, row count and compact table", () => {
-    const out = formatRelatedResults([
-      {
-        schema: "db1",
-        table: "t_user",
-        columns: ["id", "name"],
-        rows: [
-          { id: 7, name: "ada" },
-          { id: 8, name: "bob" },
-        ],
-        rowCount: 2,
-        joinPath: "t_order.user_id -> t_user.id",
-        elapsed: "0.002s",
-      },
-    ]);
-
-    expect(out).toContain("────── 关联表 ──────");
-    expect(out).toContain("### db1.t_user");
-    expect(out).toContain("关联路径：t_order.user_id -> t_user.id");
-    expect(out).toContain("行数：2（0.002s）");
-    expect(out).toContain("ada");
-    expect(out).toContain("bob");
-  });
-
-  it("renders empty-result placeholder for tables without rows", () => {
-    const out = formatRelatedResults([
-      {
-        schema: "db1",
-        table: "t_empty",
-        columns: [],
-        rows: [],
-        rowCount: 0,
-        joinPath: "a.x -> t_empty.id",
-        elapsed: "0.001s",
-      },
-    ]);
-    expect(out).toContain("（空结果）");
-  });
-
-  it("renders multiple related tables in order", () => {
-    const out = formatRelatedResults([
-      {
-        schema: "a",
-        table: "t1",
-        columns: [],
-        rows: [],
-        rowCount: 0,
-        joinPath: "x",
-        elapsed: "0s",
-      },
-      {
-        schema: "a",
-        table: "t2",
-        columns: [],
-        rows: [],
-        rowCount: 0,
-        joinPath: "y",
-        elapsed: "0s",
-      },
-    ]);
-    expect(out.indexOf("### a.t1")).toBeLessThan(out.indexOf("### a.t2"));
   });
 });
 

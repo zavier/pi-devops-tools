@@ -7,6 +7,7 @@ import { readToggle } from "./state/extension-toggle";
 import { registerDbCommand, restoreStatusBar } from "./commands/db";
 import { registerRenderers } from "./commands/renderers";
 import { registerDbTools, applyInitialToolSet } from "./tools/db-tools";
+import { sendDbStatus } from "./commands/llm-context";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
 
@@ -57,27 +58,7 @@ export default function (pi: ExtensionAPI) {
     restoreStatusBar(ws, ctx);
     // 恢复会话时告知 LLM 当前激活的数据库，
     // 避免它通过一次失败的调用去发现。
-    if (ws.isReady) {
-      const db = ws.current!;
-      pi.sendMessage(
-        {
-          customType: "db-active-db",
-          content: `Current database: ${db.database} (connection: ${db.connectionId}, environment: ${db.environment}). Config file: ${ws.configPath}.`,
-          display: false,
-        },
-        { deliverAs: "followUp", triggerTurn: false },
-      );
-    } else if (ws.isConfigured) {
-      // 已配置但未切换——让 AI 知道，以便协助用户选择数据库。
-      pi.sendMessage(
-        {
-          customType: "db-hint",
-          content: `Database connections are configured but no database is selected. Tell the user to run /db switch to connect. Config file: ${ws.configPath}.`,
-          display: false,
-        },
-        { deliverAs: "followUp", triggerTurn: false },
-      );
-    }
+    sendDbStatus(pi, ws);
   });
 
   // 关闭时清理

@@ -1,6 +1,10 @@
 # AI 数据修改工具 — 设计方案
 
 > 允许 AI 通过 `db_mutate` 工具发起 INSERT/UPDATE/DELETE/REPLACE，但 **必须经过人工在 TUI 中确认** 后才能执行。
+>
+> 状态：已实施（v0.8.x）。后续演进：校验 + 人工确认已收回 facade ——
+> 现为 `DatabaseWorkspaceService.executeMutationWithApproval(sql, opts, confirm)`
+> 单一写入口（见 §2/§5 更新），工具层只做参数装配与结果整形。
 
 ## 目录
 
@@ -49,30 +53,22 @@
 LLM 调用 db_mutate(sql)
         │
         ▼
-tools/db-tools.ts  ──►  prepareMutationQuery(sql)   ← connection/sql-policy.ts
-        │                   校验通过？
-        │                    ├─ 否 → 返回错误给 LLM
-        │                    └─ 是 ↓
+tools/db-tools.ts  ──►  ws.executeMutationWithApproval(sql, opts, confirm)
+        │                     └─ confirm = (req) => showMutationConfirm(ctx, req)
         ▼
-  ctx.ui.custom({ overlay: true })
+state/workspace.ts（facade —— 仪式唯一归属）
+        │
+        ├─ 1. prepareMutationQuery(sql)   ← connection/sql-policy.ts
+        │       校验通过？ 否（DDL 等）→ 抛 MutationValidationError → isError 给 LLM
+        │       是 ↓
+        ├─ 2. resolveTarget(opts)
+        ├─ 3. confirm({ 校验结果 + 目标 }) —— commands/mutate-confirm.ts
+        │       ├─ 用户取消 → 返回 { status: "rejected" } → 非 isError 回显给 LLM
+        │       └─ 用户确认 ↓
+        ├─ 4. manager.executeMutation() ← connection/db-manager.ts
         │
         ▼
-  MutationConfirmDialog     ← 新组件 (commands/mutate-confirm.ts)
-    显示 SQL + 操作类型 + 目标数据库
-    用户：Enter 确认 / Esc 取消
-        │
-        ├─ 用户取消 → 返回 { confirmed: false } 给 LLM
-        │
-        └─ 用户确认 ↓
-              │
-              ▼
-        ws.executeMutation(sql)   ← state/workspace.ts (新方法)
-              │
-              ▼
-        manager.executeMutation() ← connection/db-manager.ts (新方法)
-              │
-              ▼
-        返回 affectedRows + elapsed 给 LLM
+        返回 { status: "executed", affectedRows, elapsed, sql, connectionId, database }
 ```
 
 ---
@@ -183,25 +179,56 @@ async executeMutation(
 ### 5.1 新增 `state/workspace.ts`
 
 ```typescript
-/** Execute a data mutation (INSERT/UPDATE/DELETE/REPLACE). */
-async executeMutation(
-  sql: string,
-  opts?: { connectionId?: string; database?: string },
-): Promise<{
-  affectedRows: number;
-  elapsed: string;
+/** 写操作确认请求：校验结果 + 解析后的目标。 */
+export interface MutationApprovalRequest {
   sql: string;
+  operation: "INSERT" | "UPDATE" | "DELETE" | "REPLACE";
+  warning?: string;
   connectionId: string;
   database: string;
-}> {
+}
+
+/** 写操作结果：用户拒绝是正常结果（rejected），非异常。 */
+export type MutationOutcome =
+  | { status: "rejected"; sql: string }
+  | {
+      status: "executed";
+      affectedRows: number;
+      elapsed: string;
+      sql: string;
+      connectionId: string;
+      database: string;
+    };
+
+/** 唯一写入口——持有完整仪式：校验 → 人工确认 → 执行。 */
+async executeMutationWithApproval(
+  sql: string,
+  opts: { connectionId?: string; database?: string },
+  confirm: (req: MutationApprovalRequest) => Promise<boolean>,
+): Promise<MutationOutcome> {
+  const validation = prepareMutationQuery(sql); // DDL → 抛 MutationValidationError，不进入确认
   const target = this.resolveTarget(opts);
+
+  const approved = await confirm({
+    sql: validation.sql,
+    operation: validation.operation,
+    warning: validation.warning,
+    connectionId: target.connectionId,
+    database: target.database,
+  });
+  if (!approved) return { status: "rejected", sql: validation.sql };
+
   const result = await this.manager.executeMutation(
     target.connectionId,
     target.database,
-    sql,
+    validation.sql,
   );
-  this._lastSql = sql;
-  return { ...result, connectionId: target.connectionId, database: target.database };
+  return {
+    status: "executed",
+    ...result,
+    connectionId: target.connectionId,
+    database: target.database,
+  };
 }
 ```
 

@@ -27,7 +27,7 @@ npm run fmt:check   # oxfmt --check          —— 必须通过（与 fmt 重�
 
 - **代码注释（`//` 与 `/* */`）一律使用中文**（代码标识符、类型名保持英文）。
 - **git message 使用中文**（conventional commits 格式，见下）。subject 用中文描述变更；body 用中文说明做了什么、为什么。
-- **发给 LLM 的运行时字符串保持英文**：工具 description / promptSnippet / promptGuidelines 是模型提示语，不要翻译（保持稳定、可预期）。
+- **模型提示语保持英文**：工具 description / promptSnippet / promptGuidelines 是模型提示语，不要翻译（保持稳定、可预期）。工具执行输出与 TUI 文案使用中文（与 /db query 的 LLM 消息保持一致）。
 - 用户可见的 TUI 文案（`ctx.ui.notify` 等）使用中文（现状如此，保持一致）。
 
 ## 分支、提交、PR
@@ -43,7 +43,7 @@ npm run fmt:check   # oxfmt --check          —— 必须通过（与 fmt 重�
 ## 设计底线
 
 - **Facade 完整性**：命令永远不越过 `DatabaseWorkspaceService`。所有委托（`manager`、`history`、`favorites`、`relationGraph`）都是 facade 的私有字段。命令需要新行为时，在 facade 上暴露专用方法——不要穿透到内部。
-- **每种操作单一执行路径**：所有读查询流经 `DatabaseConnectionManager.executeQuery`（只读守卫 + LIMIT）。所有写变更流经 `DatabaseConnectionManager.executeMutation`（`prepareMutationQuery` 拒绝 DDL，人工确认门）。绝不创建新的查询路径或绕过 `sql-policy.ts`。
+- **每种操作单一执行路径**：所有读查询流经 `DatabaseConnectionManager.executeQuery`（只读守卫 + LIMIT）。所有写变更流经 `DatabaseWorkspaceService.executeMutationWithApproval`（facade 内 `prepareMutationQuery` 拒绝 DDL + 注入的人工确认回调）。绝不创建新的查询路径或绕过 `sql-policy.ts`。
 - **纯工具函数**：`sql-policy.ts`（只读守卫 + LIMIT 注入 + DML 校验）和 `formatting/result-table.ts` 是纯函数、无副作用。保持这一点——不导入 pi、不做 I/O。当逻辑不需要 pi API 时，抽成纯函数以便用普通值测试。
 - **测试接缝**：模块通过构造函数参数接受依赖（`StateStore`、`Database` 句柄、`QueryFn`）。不要引入硬编码路径（如 `homedir()`）或单例——注入接缝。
 - **实时 schema，无缓存**：`getTables()` 和 `getTableSchema()` 总是查询实时 DB（`information_schema`）。没有 schema 缓存需要刷新或保持一致——实时查询足够廉价且永不过期。没有实测需求就不要重新引入缓存层。

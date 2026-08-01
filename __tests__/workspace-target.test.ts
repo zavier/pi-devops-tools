@@ -1,9 +1,10 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StateStore } from "../state/state-store";
-import { DatabaseWorkspaceService } from "../state/workspace";
+import { DatabaseWorkspaceService, type MutationApprovalRequest } from "../state/workspace";
+import { MutationValidationError } from "../connection/sql-policy";
 
 const CONNECTIONS_YAML = `connections:
   main:
@@ -195,7 +196,6 @@ describe("DatabaseWorkspaceService target resolution", () => {
     expect(entry.connectionId).toBe("other");
     expect(entry.database).toBe("stagingdb");
     expect(entry.environment).toBe("staging");
-    expect(ws.getHistoryById(entry.id)?.database).toBe("stagingdb");
   });
 
   it("saveHistory falls back to the workspace selection", () => {
@@ -255,5 +255,97 @@ describe("DatabaseWorkspaceService target resolution", () => {
     // 第二次删除是空操作
     const deletedAgain = ws.removeRelationByColumns("somedb", "a", "x", "b", "y");
     expect(deletedAgain).toBe(false);
+  });
+});
+
+describe("DatabaseWorkspaceService.executeMutationWithApproval", () => {
+  const dirs: string[] = [];
+  const services: DatabaseWorkspaceService[] = [];
+
+  function makeWorkspace(): DatabaseWorkspaceService {
+    const dir = mkdtempSync(join(tmpdir(), "ws-mut-test-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "connections.yaml"), CONNECTIONS_YAML);
+    const ws = new DatabaseWorkspaceService(new StateStore(dir));
+    services.push(ws);
+    return ws;
+  }
+
+  afterEach(() => {
+    for (const ws of services.splice(0)) ws.destroy();
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rejects DDL before invoking the confirm callback", async () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+    const confirm = vi.fn<() => Promise<boolean>>(async () => true);
+
+    await expect(ws.executeMutationWithApproval("DROP TABLE users", {}, confirm)).rejects.toThrow(
+      MutationValidationError,
+    );
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("throws before confirm when no target can be resolved", async () => {
+    const ws = makeWorkspace();
+    const confirm = vi.fn<() => Promise<boolean>>(async () => true);
+
+    await expect(
+      ws.executeMutationWithApproval("UPDATE t SET a=1 WHERE id=1", {}, confirm),
+    ).rejects.toThrow(/No database selected/);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("returns rejected when the user declines, without touching the manager", async () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+    const confirm = vi.fn<() => Promise<boolean>>(async () => false);
+
+    const outcome = await ws.executeMutationWithApproval(
+      "UPDATE t SET a=1 WHERE id=1",
+      {},
+      confirm,
+    );
+    expect(outcome.status).toBe("rejected");
+    // 若误触达 manager.executeMutation，测试会因连不上 MySQL 抛错，
+    // 而不是返回 rejected——因此这行足以证明执行路径未被走。
+  });
+
+  it("passes the merged validation + target request to confirm", async () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+    let received: MutationApprovalRequest | undefined;
+    const confirm = async (req: MutationApprovalRequest) => {
+      received = req;
+      return false; // 只验证 request 形状，不真正执行
+    };
+
+    await ws.executeMutationWithApproval(
+      "UPDATE t SET a=1 WHERE id=1",
+      { connectionId: "other", database: "stagingdb" },
+      confirm,
+    );
+    expect(received).toEqual({
+      sql: "UPDATE t SET a=1 WHERE id=1",
+      operation: "UPDATE",
+      warning: undefined,
+      connectionId: "other",
+      database: "stagingdb",
+    });
+  });
+
+  it("carries the no-WHERE warning into the request", async () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+    let received: MutationApprovalRequest | undefined;
+    const confirm = async (req: MutationApprovalRequest) => {
+      received = req;
+      return false;
+    };
+
+    await ws.executeMutationWithApproval("DELETE FROM logs", {}, confirm);
+    expect(received?.operation).toBe("DELETE");
+    expect(received?.warning).toMatch(/WHERE/);
   });
 });

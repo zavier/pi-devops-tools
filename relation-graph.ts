@@ -10,7 +10,7 @@ import { RelationStore, type RelationRow } from "./relation/store";
 export type QueryFn = (
   sql: string,
   params?: unknown[],
-) => Promise<{ columns: string[]; rows: Record<string, any>[]; elapsed: string }>;
+) => Promise<{ rows: Record<string, any>[]; elapsed: string }>;
 
 function key(c: ColumnRef): string {
   return `${c.schema}.${c.table}.${c.column}${c.condition ? ":" + c.condition : ""}`;

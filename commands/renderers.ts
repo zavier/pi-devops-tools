@@ -6,6 +6,10 @@
  *   自适应宽度（EntryRenderer + Component）。
  * - pi.sendMessage({ display: false, ... }) → 仅 LLM 上下文，紧凑格式。
  *
+ * 文档文本由 formatting/result-document.ts 统一装配（纯函数），
+ * 本模块只做两件事：把 DocLine 的 style 映射为 theme 颜色、
+ * 追加依赖 pi keyHint 的交互提示行。
+ *
  * 面板（`db-workspace-panel`）保持为消息渲染器——其内容是
  * 对 LLM 也有用的短预格式化文本。
  */
@@ -14,7 +18,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
-import { formatTableDisplay, formatVerticalFull } from "../formatting/result-table";
+import type { QueryResultDoc } from "../formatting/result-document";
+import { renderQueryDocument } from "../formatting/result-document";
 
 // ====== 条目数据 ======
 
@@ -71,37 +76,7 @@ export function registerRenderers(pi: ExtensionAPI): void {
 
 // ====== 内部辅助 ======
 
-/**
- * 关联表折叠态摘要——单行紧凑列出所有表名与行数。
- * 纯文本（无 theme），方便单独测试。
- */
-export function formatRelatedSummary(related: RelatedTuiData[]): string {
-  if (related.length === 0) return "";
-  const parts = related.map((r) => `${r.table}（${r.rowCount} 行）`);
-  return `📎 关联表：${parts.join("、")}`;
-}
-
-/**
- * 关联表展开态内容——每张表：标题行 + 关联路径 + 自适应宽度表格。
- * 纯文本（无 theme），方便单独测试。
- */
-export function formatRelatedExpanded(related: RelatedTuiData[], width: number): string[] {
-  const lines: string[] = [];
-  for (const r of related) {
-    lines.push("");
-    lines.push(`── 📎 关联表 ${r.schema}.${r.table} — ${r.rowCount} 行（${r.elapsed}）──`);
-    if (r.joinPath) lines.push(`   路径：${r.joinPath}`);
-    lines.push("");
-    if (r.rows.length > 0) {
-      const table = formatTableDisplay({ columns: r.columns, rows: r.rows as any }, width);
-      lines.push(...table.split("\n"));
-    } else {
-      lines.push("（空结果）");
-    }
-  }
-  return lines;
-}
-
+/** 装配文档 + 映射颜色 + 追加 keyHint 交互提示。 */
 function renderQueryResult(
   d: QueryResultEntryData,
   width: number,
@@ -109,54 +84,26 @@ function renderQueryResult(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   theme: any,
 ): string[] {
-  const lines: string[] = [];
-  const w = Math.max(width, 40);
+  const doc: QueryResultDoc = {
+    database: d.database,
+    sql: d.sql,
+    rowCount: d.rowCount,
+    elapsed: d.elapsed,
+    columns: d.columns,
+    rows: d.rows,
+    related: d.related,
+  };
 
-  // 表头
-  lines.push(
-    theme.fg("accent", theme.bold(`🗄 查询 — ${d.database}`)) +
-      theme.fg("dim", `  ${d.rowCount} 行 (${d.elapsed})`),
-  );
-  lines.push(theme.fg("muted", `SQL: ${d.sql}`));
-  lines.push("");
-
-  if (d.rowCount === 0) {
-    lines.push("（空结果）");
-  } else if (expanded) {
-    // 完整表格：全部行纵向，不截断
-    lines.push(...formatVerticalFull(d.columns, d.rows as any));
-    lines.push(`全部 ${d.rowCount} 行 × ${d.columns.length} 列`);
-  } else {
-    // 默认：自适应横向/转置/纵向
-    const table = formatTableDisplay({ columns: d.columns, rows: d.rows as any }, w);
-    lines.push(...table.split("\n"));
-
-    if (d.rowCount > 20) {
-      lines.push(
-        "",
-        theme.fg(
-          "dim",
-          `… 更多行在 LLM 上下文中（${keyHint("app.tools.expand", "查看完整结果")}）`,
-        ),
-      );
+  return renderQueryDocument(doc, { audience: "tui-zh", width, expanded }).map((l) => {
+    let text = l.text;
+    if (l.hint === "expand-rows") {
+      text += `（${keyHint("app.tools.expand", "查看完整结果")}）`;
+    } else if (l.hint === "expand-related") {
+      text = `（${keyHint("app.tools.expand", "展开查看完整内容")}，或 /db related 打开浏览器）`;
     }
-  }
-
-  // 关联表：折叠态显示摘要，展开态显示完整内容（与主表同一视图）。
-  if (d.related.length > 0) {
-    if (expanded) {
-      lines.push("", theme.fg("accent", theme.bold(`📎 关联表（${d.related.length} 个）`)));
-      lines.push(...formatRelatedExpanded(d.related, w));
-    } else {
-      lines.push("", theme.fg("dim", formatRelatedSummary(d.related)));
-      lines.push(
-        theme.fg(
-          "dim",
-          `（${keyHint("app.tools.expand", "展开查看完整内容")}，或 /db related 打开浏览器）`,
-        ),
-      );
-    }
-  }
-
-  return lines;
+    if (l.style === "accent") return theme.fg("accent", theme.bold(text));
+    if (l.style === "dim") return theme.fg("dim", text);
+    if (l.style === "muted") return theme.fg("muted", text);
+    return text;
+  });
 }

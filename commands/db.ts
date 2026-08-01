@@ -20,8 +20,8 @@ import { handleQuery } from "./query";
 import { handleHistory } from "./history";
 import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
-import { getLastRelatedCache } from "./query";
-import { openRelatedBrowser } from "./related-browser";
+import { RelatedBrowserCacheStore, openRelatedBrowser } from "./related-browser";
+import { sendDbStatus } from "./llm-context";
 import { writeToggle } from "../state/extension-toggle";
 
 // ====== 自动补全项类型（结构上匹配 pi-tui AutocompleteItem）======
@@ -76,6 +76,10 @@ export function registerDbCommand(
     return;
   }
 
+  // 最近关联查询缓存——注册时创建一次，注入 query 路径写入、
+  // related 路径读取（替代 module 级单例，见 AGENTS.md 注入接缝）。
+  const relatedCache = new RelatedBrowserCacheStore();
+
   pi.registerCommand("db", {
     description:
       "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | related | on | off",
@@ -94,10 +98,10 @@ export function registerDbCommand(
       switch (sub) {
         case undefined: {
           // 在展示交互式仪表盘之前发送静默 LLM 上下文
-          sendLLMContext(ws, pi);
+          sendDbStatus(pi, ws);
           const action = await showDashboard(ctx, ws);
           if (!action) return;
-          await dispatchAction(action, ctx, ws, pi, rest);
+          await dispatchAction(action, ctx, ws, pi, rest, relatedCache);
           break;
         }
         case "switch":
@@ -113,7 +117,7 @@ export function registerDbCommand(
           await handleSchema(ctx, ws, pi, rest[0]);
           break;
         case "query":
-          await handleQuery(ctx, ws, pi, rest.join(" ") || undefined);
+          await handleQuery(ctx, ws, pi, rest.join(" ") || undefined, relatedCache);
           break;
         case "history":
           await handleHistory(ctx, ws, pi, rest[0]);
@@ -125,7 +129,7 @@ export function registerDbCommand(
           await handleRelations(ctx, ws, pi, rest);
           break;
         case "related":
-          await handleRelatedBrowser(ctx);
+          await handleRelatedBrowser(ctx, relatedCache);
           break;
         case "on":
           await handleToggle(ctx, true, toggleBaseDir);
@@ -143,8 +147,11 @@ export function registerDbCommand(
 // ====== 关联表浏览器 ================================================
 
 /** 打开最近一次关联查询的浏览器；无缓存时提示引导。 */
-async function handleRelatedBrowser(ctx: ExtensionCommandContext): Promise<void> {
-  const cache = getLastRelatedCache();
+async function handleRelatedBrowser(
+  ctx: ExtensionCommandContext,
+  relatedCache: RelatedBrowserCacheStore,
+): Promise<void> {
+  const cache = relatedCache.get();
   if (!cache) {
     ctx.ui.notify(
       "没有可浏览的关联表——先执行关联表查询（/db query 选表后选择「📎 是，一起查询关联表」）",
@@ -238,29 +245,6 @@ const DASHBOARD_ACTIONS: DashboardAction[] = [
   { value: "relations", label: "🔗 表关联关系", needsConnection: true },
   { value: "related", label: "📎 关联表浏览器", needsConnection: false },
 ];
-
-/** 发送静默上下文消息，让 LLM 知道数据库状态。 */
-function sendLLMContext(ws: DatabaseWorkspaceService, pi: ExtensionAPI): void {
-  if (ws.isReady) {
-    pi.sendMessage(
-      {
-        customType: "db-active-db",
-        content: `Current database: ${ws.current!.database} (connection: ${ws.current!.connectionId}, environment: ${ws.current!.environment}). Config file: ${ws.configPath}.`,
-        display: false,
-      },
-      { deliverAs: "followUp", triggerTurn: false },
-    );
-  } else if (ws.isConfigured) {
-    pi.sendMessage(
-      {
-        customType: "db-hint",
-        content: `Database connections are configured but no database is selected. Tell the user to run /db switch to connect. Config file: ${ws.configPath}.`,
-        display: false,
-      },
-      { deliverAs: "followUp", triggerTurn: false },
-    );
-  }
-}
 
 /** 构建交互式仪表盘组件。 */
 async function showDashboard(
@@ -357,6 +341,7 @@ async function dispatchAction(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
   rest: string[],
+  relatedCache: RelatedBrowserCacheStore,
 ): Promise<void> {
   switch (action) {
     case "switch":
@@ -372,7 +357,7 @@ async function dispatchAction(
       await handleSchema(ctx, ws, pi, rest[0]);
       break;
     case "query":
-      await handleQuery(ctx, ws, pi, rest.join(" ") || undefined);
+      await handleQuery(ctx, ws, pi, rest.join(" ") || undefined, relatedCache);
       break;
     case "history":
       await handleHistory(ctx, ws, pi, rest[0]);
@@ -384,7 +369,7 @@ async function dispatchAction(
       await handleRelations(ctx, ws, pi, rest);
       break;
     case "related":
-      await handleRelatedBrowser(ctx);
+      await handleRelatedBrowser(ctx, relatedCache);
       break;
   }
 }

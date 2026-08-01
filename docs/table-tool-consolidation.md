@@ -1,6 +1,6 @@
 # 表工具合并方案：db_list_tables + db_table_schema → db_tables
 
-> 状态：待实施（目标版本 v0.8.0，与 tool-loading 合并发布）
+> 状态：已实施（`db_tables` 位于 `tools/db-tools.ts`）
 > 前置：v0.8.0 Dynamic Tool Loading 已完成（`docs/tool-loading-redesign.md`）
 
 ## 1. 背景与目标

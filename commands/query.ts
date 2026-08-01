@@ -17,10 +17,11 @@ import type { SelectItem } from "@earendil-works/pi-tui";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { RelatedResult, SqlRow } from "../types";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
-import { formatTableCompact } from "../formatting/result-table";
+import type { QueryResultDoc } from "../formatting/result-document";
+import { renderQueryDocument } from "../formatting/result-document";
 import { pickTableFuzzy, withLoader } from "./utils";
 import type { QueryResultEntryData, RelatedTuiData } from "./renderers";
-import type { RelatedBrowserCache } from "./related-browser";
+import type { RelatedBrowserCacheStore } from "./related-browser";
 
 interface ExecutedResult {
   columns: string[];
@@ -43,26 +44,7 @@ export function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
   });
 }
 
-// ── 关联结果格式化 ──────────────────────────────────
-
-export function formatRelatedResults(related: RelatedResult[]): string {
-  if (related.length === 0) return "";
-
-  const lines: string[] = ["", "────── 关联表 ──────", ""];
-  for (const r of related) {
-    lines.push(`### ${r.schema}.${r.table}`);
-    lines.push(`关联路径：${r.joinPath}`);
-    lines.push(`行数：${r.rowCount}（${r.elapsed}）`);
-    lines.push("");
-    if (r.rows.length > 0) {
-      lines.push(formatTableCompact({ columns: r.columns, rows: r.rows }));
-    } else {
-      lines.push("（空结果）");
-    }
-    lines.push("");
-  }
-  return lines.join("\n");
-}
+// ── 关联结果转换 ──────────────────────────────────
 
 /** 将 RelatedResult 转为 TUI entry 可用的 RelatedTuiData（行值清洗为 string|null）。 */
 export function toRelatedTuiData(related: RelatedResult[]): RelatedTuiData[] {
@@ -77,15 +59,6 @@ export function toRelatedTuiData(related: RelatedResult[]): RelatedTuiData[] {
   }));
 }
 
-// ── 最近关联查询缓存（/db related 浏览器入口用）──
-
-let lastRelatedCache: RelatedBrowserCache | null = null;
-
-/** 最近一次关联查询的结果缓存；无关联查询时返回 null。 */
-export function getLastRelatedCache(): RelatedBrowserCache | null {
-  return lastRelatedCache;
-}
-
 // ── 展示（双受众：TUI 条目 + LLM 上下文）──────────
 
 async function displayQueryResult(
@@ -94,6 +67,7 @@ async function displayQueryResult(
   pi: ExtensionAPI,
   result: ExecutedResult,
   related: RelatedResult[] = [],
+  relatedCache?: RelatedBrowserCacheStore,
 ): Promise<void> {
   const database = ws.current!.database;
   try {
@@ -106,7 +80,7 @@ async function displayQueryResult(
 
   const relatedTui = toRelatedTuiData(related);
   if (relatedTui.length > 0) {
-    lastRelatedCache = { database, sql: result.sql, related: relatedTui };
+    relatedCache?.set({ database, sql: result.sql, related: relatedTui });
   }
 
   pi.appendEntry("db-query-result", {
@@ -119,28 +93,25 @@ async function displayQueryResult(
     related: relatedTui,
   } satisfies QueryResultEntryData);
 
-  // ── LLM 上下文：紧凑表格 + 元数据（display: false）───────
+  // ── LLM 上下文：统一文档装配（display: false）───────
 
-  const compact = formatTableCompact({ columns: result.columns, rows: result.rows });
-  const relatedText = related.length > 0 ? formatRelatedResults(related) : "";
-
-  const content = [
-    `## 数据库查询结果`,
-    ``,
-    `**数据库**：${database}`,
-    `**SQL**：${result.sql}`,
-    `**行数**：${result.rows.length}（${result.elapsed}）`,
-    ``,
-    compact,
-  ];
-  if (related.length > 0) {
-    content.push(``, `### 关联表（${related.length} 个）`, ``, relatedText);
-  }
+  const doc: QueryResultDoc = {
+    database,
+    sql: result.sql,
+    rowCount: result.rows.length,
+    elapsed: result.elapsed,
+    columns: result.columns,
+    rows: result.rows,
+    related: related.length > 0 ? related : undefined,
+  };
+  const content = renderQueryDocument(doc, { audience: "llm-zh" })
+    .map((l) => l.text)
+    .join("\n");
 
   pi.sendMessage(
     {
       customType: "db-query-result",
-      content: content.join("\n"),
+      content,
       display: false,
     },
     { deliverAs: "followUp", triggerTurn: false },
@@ -173,6 +144,7 @@ async function queryByTable(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
   preSelectedTable?: string,
+  relatedCache?: RelatedBrowserCacheStore,
 ): Promise<void> {
   const table = preSelectedTable ?? (await pickTableFuzzy(ctx, ws, "选择数据表"));
   if (!table) return;
@@ -206,7 +178,7 @@ async function queryByTable(
       ctx.ui.notify(`查询出错：${err.message}`, "error");
       return;
     }
-    await displayQueryResult(ctx, ws, pi, result, result.related);
+    await displayQueryResult(ctx, ws, pi, result, result.related, relatedCache);
   } else {
     await executeAndDisplay(ctx, ws, pi, sql);
   }
@@ -233,6 +205,7 @@ export async function handleQuery(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
   tableArg?: string,
+  relatedCache?: RelatedBrowserCacheStore,
 ): Promise<void> {
   if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
@@ -247,7 +220,7 @@ export async function handleQuery(
       tables = [];
     }
     if (tables.includes(tableArg)) {
-      return await queryByTable(ctx, ws, pi, tableArg);
+      return await queryByTable(ctx, ws, pi, tableArg, relatedCache);
     }
     if (READONLY_SQL_RE.test(tableArg)) {
       return await executeAndDisplay(ctx, ws, pi, tableArg);
@@ -264,5 +237,5 @@ export async function handleQuery(
   if (choice === "__sql__") {
     return await queryRaw(ctx, ws, pi);
   }
-  return await queryByTable(ctx, ws, pi, choice);
+  return await queryByTable(ctx, ws, pi, choice, relatedCache);
 }

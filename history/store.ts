@@ -31,7 +31,6 @@ export interface HistoryFilter {
 
 export class QueryHistoryStore {
   private db: Database.Database;
-  private initialized = false;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -39,8 +38,6 @@ export class QueryHistoryStore {
   }
 
   private init(): void {
-    if (this.initialized) return;
-
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS query_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,8 +58,6 @@ export class QueryHistoryStore {
       CREATE INDEX IF NOT EXISTS idx_history_time
         ON query_history(created_time DESC);
     `);
-
-    this.initialized = true;
   }
 
   /** 保存一条查询执行记录。 */
@@ -130,28 +125,6 @@ export class QueryHistoryStore {
     return result.changes > 0;
   }
 
-  /** 历史记录总数。 */
-  count(filter?: { connectionId?: string; database?: string }): number {
-    const conditions: string[] = [];
-    const params: any[] = [];
-
-    if (filter?.connectionId) {
-      conditions.push("connection_id = ?");
-      params.push(filter.connectionId);
-    }
-    if (filter?.database) {
-      conditions.push("database = ?");
-      params.push(filter.database);
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const row = this.db
-      .prepare(`SELECT COUNT(*) as cnt FROM query_history ${where}`)
-      .get(...params) as { cnt: number };
-
-    return row.cnt;
-  }
-
   private rowToEntry(row: Record<string, any>): HistoryEntry {
     return {
       id: row.id,
@@ -192,7 +165,6 @@ export interface FavoriteFilter {
  */
 export class FavoriteStore {
   private db: Database.Database;
-  private initialized = false;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -200,8 +172,6 @@ export class FavoriteStore {
   }
 
   private init(): void {
-    if (this.initialized) return;
-
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS query_favorites (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,8 +188,6 @@ export class FavoriteStore {
       CREATE INDEX IF NOT EXISTS idx_favorites_database
         ON query_favorites(database, name)
     `);
-
-    this.initialized = true;
   }
 
   /** 保存一条新收藏。 */
@@ -266,58 +234,10 @@ export class FavoriteStore {
     return rows.map((r) => this.rowToEntry(r));
   }
 
-  /** 更新收藏的名称、sql 和/或描述。 */
-  update(
-    id: number,
-    fields: { name?: string; sql?: string; description?: string },
-  ): FavoriteEntry | undefined {
-    const sets: string[] = [];
-    const params: any[] = [];
-
-    if (fields.name !== undefined) {
-      sets.push("name = ?");
-      params.push(fields.name);
-    }
-    if (fields.sql !== undefined) {
-      sets.push("sql = ?");
-      params.push(fields.sql);
-    }
-    if (fields.description !== undefined) {
-      sets.push("description = ?");
-      params.push(fields.description);
-    }
-
-    if (sets.length === 0) return this.getById(id);
-
-    sets.push("updated_time = datetime('now')");
-    params.push(id);
-
-    this.db.prepare(`UPDATE query_favorites SET ${sets.join(", ")} WHERE id = ?`).run(...params);
-
-    return this.getById(id);
-  }
-
   /** 按 ID 删除收藏。 */
   delete(id: number): boolean {
     const result = this.db.prepare("DELETE FROM query_favorites WHERE id = ?").run(id);
     return result.changes > 0;
-  }
-
-  /** 总数。 */
-  count(filter?: { database?: string }): number {
-    const conditions: string[] = [];
-    const params: any[] = [];
-
-    if (filter?.database !== undefined) {
-      conditions.push("(database = ? OR database = '')");
-      params.push(filter.database);
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const row = this.db
-      .prepare(`SELECT COUNT(*) as cnt FROM query_favorites ${where}`)
-      .get(...params) as { cnt: number };
-    return row.cnt;
   }
 
   private rowToEntry(row: Record<string, any>): FavoriteEntry {

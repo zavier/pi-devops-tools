@@ -190,31 +190,34 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 
 ### 3.6 结果格式化
 
-纯函数模块 `formatting/result-table.ts`，导出四个主要入口：
+纯函数模块 `formatting/result-table.ts`，导出三个主要入口：
 
 | 函数                 | 受众 | 说明                                                                                      |
 | -------------------- | ---- | ----------------------------------------------------------------------------------------- |
 | `formatTableDisplay` | TUI  | 自适应终端宽度 — 先尝试水平表格（`layoutColumns` 列宽打包），放不下则转置，再多行用垂直。 |
 | `formatTableCompact` | LLM  | 无填充紧凑格式，200 字符截断带 `…[+N]` 标记，全部行。                                     |
 | `formatVerticalFull` | TUI  | 展开模式完整键值对，不截断。                                                              |
-| `formatTableResult`  | 兼容 | `formatTableDisplay(120)` 的别名，向后兼容。                                              |
 
 列分析（`analyzeColumns`）在格式化前运行，自动折叠全 NULL 列和值完全相同列，在底部注释汇总（`ⓘ 已隐藏 N 列`）。
 
 ### 3.7 数据修改工具 — db_mutate
 
-`db_mutate` 是唯一的写路径，设计原则是「AI 提议，人类批准」：
+`db_mutate` 是唯一的写路径，设计原则是「AI 提议，人类批准」。仪式（校验 + 人工确认）由 facade 持有：
 
 ```
 LLM 调用 db_mutate({ sql, connection?, database? })
   │
-  ├─ 1. prepareMutationQuery(sql)     ← DML 校验（DDL 直接拒绝）
+  ▼
+ws.executeMutationWithApproval(sql, opts, confirm)   ← facade 唯一写入口
+  ├─ 1. prepareMutationQuery(sql)     ← DML 校验（DDL 抛 MutationValidationError）
   ├─ 2. resolveTarget(opts)           ← 目标解析
-  ├─ 3. showMutationConfirm()         ← TUI overlay 弹窗
+  ├─ 3. confirm({ 校验结果 + 目标 })  ← showMutationConfirm TUI overlay
   │     ├─ Enter → 确认
-  │     └─ Esc  → 取消（返回给 LLM）
+  │     └─ Esc  → 返回 { status: "rejected" } 给 LLM（非错误）
   └─ 4. manager.executeMutation()     ← 执行，返回 affectedRows
 ```
+
+确认回调由调用方注入（生产 = `showMutationConfirm`，测试 = stub），facade 保持 pi-free。
 
 **安全边界**：
 
@@ -320,15 +323,13 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
 
 ```
 1. tools/db-tools.ts: db_mutate.execute()
-   ├─ prepareMutationQuery(sql)       ← DML 校验
-   ├─ ws.resolveTarget(opts)          ← 目标解析
-   └─ showMutationConfirm(ctx, ...)   ← TUI overlay 确认
+   └─ ws.executeMutationWithApproval(sql, opts,
+        (req) => showMutationConfirm(ctx, req))   ← 注入确认回调
         │
-        ├─ 用户按 Esc → 返回 rejected 给 LLM
-        │
-        └─ 用户按 Enter ↓
-              │
-2. workspace.ts: executeMutation()
+2. workspace.ts: executeMutationWithApproval()     ← facade 持有仪式
+   ├─ prepareMutationQuery(sql)                    ← DML 校验（DDL 拒绝）
+   ├─ resolveTarget(opts)                          ← 目标解析
+   ├─ confirm({ 校验结果 + 目标 })                 ← 用户 Esc → rejected / Enter → 继续
    └─ manager.executeMutation(connId, db, sql)
         │
 3. db-manager.ts: executeMutation()

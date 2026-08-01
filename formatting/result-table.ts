@@ -6,7 +6,6 @@
  * - layoutColumns —— 自适应列宽打包函数
  * - formatTableDisplay —— 补空格 markdown 表，自适应终端宽度（TUI）
  * - formatTableCompact —— 省 token 的无填充表，带 …[+N] 标记（LLM）
- * - formatTableResult —— formatTableDisplay(120) 的别名，向后兼容
  */
 
 import type { SqlRow } from "../types";
@@ -379,13 +378,4 @@ export function formatTableCompact(result: TableResult): string {
 
   if (note) lines.push(note);
   return lines.join("\n");
-}
-
-/**
- * 向后兼容别名——为没有终端宽度的既有调用方按固定 120 字符预算格式化。
- * 新代码应优先用 formatTableDisplay（TUI）或 formatTableCompact（LLM）。
- *
- */
-export function formatTableResult(result: TableResult): string {
-  return formatTableDisplay(result, 120);
 }

@@ -21,6 +21,17 @@ export interface MutationValidation {
   warning?: string;
 }
 
+/**
+ * 变更校验失败（非 DML / DDL / 未识别语句）时抛出的错误类型。
+ * 让调用方能区分「SQL 本身不合法」与「执行期失败」。
+ */
+export class MutationValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MutationValidationError";
+  }
+}
+
 /** 应用于无尾部 LIMIT 的 SELECT 语句的默认行数上限。 */
 export const DEFAULT_QUERY_LIMIT = 100;
 
@@ -56,7 +67,7 @@ export function prepareReadOnlyQuery(sql: string, limit: number = DEFAULT_QUERY_
 export function prepareMutationQuery(sql: string): MutationValidation {
   const trimmed = sql.trim();
   if (!MUTATION_SQL_RE.test(trimmed)) {
-    throw new Error(
+    throw new MutationValidationError(
       "仅允许 DML 写操作（INSERT、UPDATE、DELETE、REPLACE）。" +
         "DDL（CREATE、DROP、ALTER、TRUNCATE）被禁止。",
     );
