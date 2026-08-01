@@ -20,6 +20,8 @@ import { handleQuery } from "./query";
 import { handleHistory } from "./history";
 import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
+import { getLastRelatedCache } from "./query";
+import { openRelatedBrowser } from "./related-browser";
 import { writeToggle } from "../state/extension-toggle";
 
 // ====== 自动补全项类型（结构上匹配 pi-tui AutocompleteItem）======
@@ -41,6 +43,7 @@ const SUBCOMMANDS = [
   "history",
   "favorite",
   "relations",
+  "related",
   "on",
   "off",
 ] as const;
@@ -75,7 +78,7 @@ export function registerDbCommand(
 
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | on | off",
+      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | related | on | off",
 
     getArgumentCompletions: async (prefix) => {
       return getCompletions(prefix, getWorkspace());
@@ -121,6 +124,9 @@ export function registerDbCommand(
         case "relations":
           await handleRelations(ctx, ws, pi, rest);
           break;
+        case "related":
+          await handleRelatedBrowser(ctx);
+          break;
         case "on":
           await handleToggle(ctx, true, toggleBaseDir);
           break;
@@ -132,6 +138,21 @@ export function registerDbCommand(
       }
     },
   });
+}
+
+// ====== 关联表浏览器 ================================================
+
+/** 打开最近一次关联查询的浏览器；无缓存时提示引导。 */
+async function handleRelatedBrowser(ctx: ExtensionCommandContext): Promise<void> {
+  const cache = getLastRelatedCache();
+  if (!cache) {
+    ctx.ui.notify(
+      "没有可浏览的关联表——先执行关联表查询（/db query 选表后选择「📎 是，一起查询关联表」）",
+      "info",
+    );
+    return;
+  }
+  await openRelatedBrowser(ctx, cache);
 }
 
 // ====== 参数补全 ======
@@ -215,6 +236,7 @@ const DASHBOARD_ACTIONS: DashboardAction[] = [
   { value: "history", label: "📜 查询历史", needsConnection: true },
   { value: "favorite", label: "⭐ 收藏查询", needsConnection: true },
   { value: "relations", label: "🔗 表关联关系", needsConnection: true },
+  { value: "related", label: "📎 关联表浏览器", needsConnection: false },
 ];
 
 /** 发送静默上下文消息，让 LLM 知道数据库状态。 */
@@ -360,6 +382,9 @@ async function dispatchAction(
       break;
     case "relations":
       await handleRelations(ctx, ws, pi, rest);
+      break;
+    case "related":
+      await handleRelatedBrowser(ctx);
       break;
   }
 }

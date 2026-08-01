@@ -19,7 +19,8 @@ import type { RelatedResult, SqlRow } from "../types";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
 import { formatTableCompact } from "../formatting/result-table";
 import { pickTableFuzzy, withLoader } from "./utils";
-import type { QueryResultEntryData } from "./renderers";
+import type { QueryResultEntryData, RelatedTuiData } from "./renderers";
+import type { RelatedBrowserCache } from "./related-browser";
 
 interface ExecutedResult {
   columns: string[];
@@ -63,6 +64,28 @@ export function formatRelatedResults(related: RelatedResult[]): string {
   return lines.join("\n");
 }
 
+/** 将 RelatedResult 转为 TUI entry 可用的 RelatedTuiData（行值清洗为 string|null）。 */
+export function toRelatedTuiData(related: RelatedResult[]): RelatedTuiData[] {
+  return related.map((r) => ({
+    schema: r.schema,
+    table: r.table,
+    joinPath: r.joinPath,
+    rowCount: r.rowCount,
+    elapsed: r.elapsed,
+    columns: r.columns,
+    rows: sanitizeRows(r.rows),
+  }));
+}
+
+// ── 最近关联查询缓存（/db related 浏览器入口用）──
+
+let lastRelatedCache: RelatedBrowserCache | null = null;
+
+/** 最近一次关联查询的结果缓存；无关联查询时返回 null。 */
+export function getLastRelatedCache(): RelatedBrowserCache | null {
+  return lastRelatedCache;
+}
+
 // ── 展示（双受众：TUI 条目 + LLM 上下文）──────────
 
 async function displayQueryResult(
@@ -81,6 +104,11 @@ async function displayQueryResult(
 
   // ── TUI：自适应宽度表格（条目，不进 LLM 上下文）───────
 
+  const relatedTui = toRelatedTuiData(related);
+  if (relatedTui.length > 0) {
+    lastRelatedCache = { database, sql: result.sql, related: relatedTui };
+  }
+
   pi.appendEntry("db-query-result", {
     database,
     sql: result.sql,
@@ -88,7 +116,7 @@ async function displayQueryResult(
     elapsed: result.elapsed,
     columns: result.columns,
     rows: sanitizeRows(result.rows),
-    relatedCount: related.length,
+    related: relatedTui,
   } satisfies QueryResultEntryData);
 
   // ── LLM 上下文：紧凑表格 + 元数据（display: false）───────

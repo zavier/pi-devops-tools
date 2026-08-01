@@ -81,6 +81,7 @@ connections:
 | `/db history [关键词]`                              | 搜索查询历史；不带关键词显示最近 20 条                                                                            |
 | `/db favorite [add]`                                | 管理收藏的 SQL 模板（按数据库分组）                                                                               |
 | `/db relations [add\|remove\|discover\|er-diagram]` | 管理表关联关系                                                                                                    |
+| `/db related`                                       | 以悬浮层浏览器查看最近一次关联查询的关联表（←→ 切表 · ↑↓ 滚动 · Esc 关闭）                                        |
 | `/db on` / `/db off`                                | 会话内启用 / 禁用扩展（见[启用与禁用](#启用与禁用)）                                                              |
 
 `/db query` 的三种调用方式 — 参数命中已知表名走选表模式，以 `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN` 开头则直接执行：
@@ -92,6 +93,8 @@ connections:
 ```
 
 结果按终端宽度自适应选择水平表格 / 转置 / 垂直键值对，`ctrl+o` 可展开查看全部行；全 NULL 列、值全相同的列会被折叠并给出摘要提示。
+
+选表模式勾选「📎 一起查询关联表」时，除主表外还会按关系图 BFS 拉取关联表数据：结果条目折叠态显示关联表摘要（表名 + 行数），`ctrl+o` 展开后与主表完整内容一起展示；也可随时执行 `/db related` 打开悬浮层浏览器逐表浏览（←→ 切换 · ↑↓ 滚动 · Esc 关闭）。完整关联数据同时进入 LLM 上下文供分析。
 
 `/db favorite` 与 `/db relations` 的子命令：
 
