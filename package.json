@@ -34,7 +34,10 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
+    "fmt:check": "oxfmt --check",
+    "publish:check": "bash scripts/publish-check.sh",
+    "preversion": "npm run publish:check",
+    "prepublishOnly": "npm run publish:check"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.1",

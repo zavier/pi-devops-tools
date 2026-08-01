@@ -68,10 +68,22 @@ npm run fmt:check   # oxfmt --check          —— 必须通过（与 fmt 重�
 
 ## 发布流程
 
-1. 将 PR 合并进 `main`。
-2. `npm version minor|patch -m "chore(release): %s"`（版本号提升、提交、打标签 `vX.Y.Z`）。
+发布前置条件由 `npm run publish:check`（`scripts/publish-check.sh`，挂在 `preversion` / `prepublishOnly` 钩子上，**无法绕过**）强制执行：
+
+- 必须在 `main` 分支
+- 本地 `main` 必须与 `origin/main` **完全同步**（自动先 fetch；本地领先或落后都拒绝）
+- 工作区必须干净（无未提交改动）
+- 全套验证通过（`check` / `test` / `lint` / `fmt:check`）
+
+```bash
+# 第 1 步之前先跑一次，确保分支与远程同步、代码可通过验证：
+npm run publish:check
+```
+
+1. 将 PR 合并进 `main`，`git pull` 确保本地同步。
+2. `npm version minor|patch -m "chore(release): %s"`（版本号提升、提交、打注解标签 `vX.Y.Z`；`preversion` 钩子自动执行前置检查）。`npm version` 默认创建注解标签——如需重建标签（如 rebase 后）必须用 `git tag -a`，**轻量标签不会被 `--follow-tags` 推送**，会导致 `gh release create --verify-tag` 报 tag 不存在。
 3. `git push --follow-tags`
-4. `npm publish`
+4. `npm publish`（`prepublishOnly` 钩子再次校验——此时若忘了 push，本地领先 origin/main，发布被中止）
 5. `gh release create vX.Y.Z --verify-tag --generate-notes`
 
 npm 包内容由 `package.json` 的 `files` 白名单控制。如果在白名单目录之外新增了运行时文件，更新它并用 `npm pack --dry-run` 验证。
