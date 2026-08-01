@@ -6,22 +6,21 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import type { SqlRow } from "../types";
-import type { RelationRow } from "../relation/store";
+import type { SqlRow, StoredRelation } from "../types";
 import { pickTableFuzzy, withLoader } from "./utils";
 
 // ── 列表格式化 ─────────────────────────────────────────────
 
-export function formatRelationsList(rows: RelationRow[]): string {
+export function formatRelationsList(rows: StoredRelation[]): string {
   if (rows.length === 0) return "暂无表关联关系。";
 
   const lines = [`═══ 表关联关系 — ${rows.length} 条 ═══`, ""];
 
   for (const r of rows) {
-    const src = `${r.schema}.${r.table_name}.${r.column_name}`;
-    const ref = `${r.ref_schema}.${r.ref_table}.${r.ref_column}`;
+    const src = `${r.schema}.${r.table}.${r.column}`;
+    const ref = `${r.refSchema}.${r.refTable}.${r.refColumn}`;
     const cond = r.condition ? ` [${r.condition}]` : "";
-    lines.push(`  #${String(r.id).padStart(3)} ${src} → ${ref} (${r.relation_type})${cond}`);
+    lines.push(`  #${String(r.id).padStart(3)} ${src} → ${ref} (${r.relationType})${cond}`);
   }
 
   return lines.join("\n");
@@ -66,10 +65,10 @@ async function handleRelationsList(
   }
 
   const labels = rows.map((r) => {
-    const src = `${r.table_name}.${r.column_name}`;
-    const ref = `${r.ref_table}.${r.ref_column}`;
+    const src = `${r.table}.${r.column}`;
+    const ref = `${r.refTable}.${r.refColumn}`;
     const cond = r.condition ? ` [${r.condition}]` : "";
-    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relation_type})${cond}`;
+    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relationType})${cond}`;
   });
 
   const choice = await ctx.ui.select("选择一个关系", labels);
@@ -79,19 +78,19 @@ async function handleRelationsList(
   const entry = rows[idx];
 
   const action = await ctx.ui.select(
-    `#${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+    `#${entry.id} ${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}`,
     ["🗑 删除", "取消"],
   );
 
   if (action === "🗑 删除") {
     const ok = await ctx.ui.confirm(
       "确认删除",
-      `#${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+      `#${entry.id} ${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}`,
     );
     if (ok) {
       ws.removeRelation(entry.id);
       ctx.ui.notify(
-        `已删除关系 #${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+        `已删除关系 #${entry.id} ${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}`,
         "info",
       );
     }
@@ -176,9 +175,9 @@ async function handleRelationsRemove(
   }
 
   const labels = rows.map((r) => {
-    const src = `${r.table_name}.${r.column_name}`;
-    const ref = `${r.ref_table}.${r.ref_column}`;
-    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relation_type})`;
+    const src = `${r.table}.${r.column}`;
+    const ref = `${r.refTable}.${r.refColumn}`;
+    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relationType})`;
   });
 
   const choice = await ctx.ui.select("选择要删除的关系", labels);
@@ -189,7 +188,7 @@ async function handleRelationsRemove(
 
   const ok = await ctx.ui.confirm(
     "确认删除",
-    `"${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}"？`,
+    `"${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}"？`,
   );
 
   if (ok) {
@@ -327,8 +326,8 @@ async function handleRelationsERDiagram(
   const relations = ws.listRelations(table);
   const relatedTableNames = new Set<string>();
   for (const r of relations) {
-    relatedTableNames.add(r.ref_table);
-    relatedTableNames.add(r.table_name);
+    relatedTableNames.add(r.refTable);
+    relatedTableNames.add(r.table);
   }
 
   const allColumns = new Map<string, SqlRow[]>();
@@ -347,9 +346,9 @@ async function handleRelationsERDiagram(
 
   for (const r of relations) {
     const label = r.condition
-      ? `${r.column_name} → ${r.ref_column} [${r.condition}]`
-      : `${r.column_name} → ${r.ref_column}`;
-    lines.push(`  "${r.table_name}" ||--o{ "${r.ref_table}" : "${label}"`);
+      ? `${r.column} → ${r.refColumn} [${r.condition}]`
+      : `${r.column} → ${r.refColumn}`;
+    lines.push(`  "${r.table}" ||--o{ "${r.refTable}" : "${label}"`);
   }
 
   const drawn = new Set<string>();

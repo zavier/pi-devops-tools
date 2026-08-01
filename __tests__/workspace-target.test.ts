@@ -217,7 +217,7 @@ describe("DatabaseWorkspaceService target resolution", () => {
     const inLogs = ws.listRelations(undefined, "logs");
     expect(inLogs).toHaveLength(1);
     expect(inLogs[0].schema).toBe("logs");
-    expect(inLogs[0].table_name).toBe("orders");
+    expect(inLogs[0].table).toBe("orders");
 
     // ……而工作空间默认仍停留在当前数据库。
     expect(ws.listRelations()).toHaveLength(0);
@@ -240,7 +240,7 @@ describe("DatabaseWorkspaceService target resolution", () => {
     ws.upsertRelation("a", "x", "b", "y", { database: "somedb", relationType: "ONE_TO_ONE" });
     const all = ws.listRelations();
     expect(all).toHaveLength(1);
-    expect(all[0].relation_type).toBe("ONE_TO_ONE");
+    expect(all[0].relationType).toBe("ONE_TO_ONE");
   });
 
   it("removeRelationByColumns deletes by column match", () => {

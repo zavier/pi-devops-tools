@@ -300,8 +300,8 @@ export function registerDbTools(
       const rows = ws.listRelations(params.table, params.database);
       const lines = rows.map(
         (r) =>
-          `#${r.id} ${r.table_name}.${r.column_name} → ${r.ref_table}.${r.ref_column}` +
-          `（${r.relation_type}${r.condition ? `，条件：${r.condition}` : ""}）`,
+          `#${r.id} ${r.table}.${r.column} → ${r.refTable}.${r.refColumn}` +
+          `（${r.relationType}${r.condition ? `，条件：${r.condition}` : ""}）`,
       );
       const scope = params.database ?? ws.current?.database ?? "全部数据库";
       return {
@@ -451,7 +451,7 @@ export function registerDbTools(
               type: "text",
               text:
                 `关联 #${row.id}：${params.table}.${params.column} → ` +
-                `${params.refTable}.${params.refColumn}（${row.relation_type}）`,
+                `${params.refTable}.${params.refColumn}（${row.relationType}）`,
             },
           ],
           details: { relationId: row.id },

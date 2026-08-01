@@ -3,24 +3,23 @@ import { sanitizeRows } from "../commands/query";
 import { formatRelationsList } from "../commands/relations";
 import { formatFavoriteList } from "../commands/favorites";
 import { formatEntry, entryToItem } from "../commands/history";
-import type { RelationRow } from "../relation/store";
 import type { FavoriteEntry, HistoryEntry } from "../history/store";
-import type { SqlRow } from "../types";
+import type { SqlRow, StoredRelation } from "../types";
 
-/** 构造一条最小 RelationRow（formatRelationsList 测试用）。 */
-function row(over: Partial<RelationRow>): RelationRow {
+/** 构造一条最小 StoredRelation（formatRelationsList 测试用）。 */
+function row(over: Partial<StoredRelation>): StoredRelation {
   return {
     id: 1,
     schema: "db",
-    table_name: "t_orders",
-    column_name: "customer_id",
+    table: "t_orders",
+    column: "customer_id",
     condition: "",
-    ref_schema: "db",
-    ref_table: "t_customers",
-    ref_column: "id",
-    relation_type: "MANY_TO_ONE",
-    created_time: "2025-01-01 00:00:00",
-    updated_time: "2025-01-01 00:00:00",
+    refSchema: "db",
+    refTable: "t_customers",
+    refColumn: "id",
+    relationType: "MANY_TO_ONE",
+    createdTime: "2025-01-01 00:00:00",
+    updatedTime: "2025-01-01 00:00:00",
     ...over,
   };
 }
@@ -84,7 +83,7 @@ describe("formatRelationsList", () => {
   });
 
   it("renders multiple rows", () => {
-    const out = formatRelationsList([row({ id: 1 }), row({ id: 2, table_name: "t_items" })]);
+    const out = formatRelationsList([row({ id: 1 }), row({ id: 2, table: "t_items" })]);
     expect(out).toContain("— 2 条");
     expect(out).toContain("#  2");
   });

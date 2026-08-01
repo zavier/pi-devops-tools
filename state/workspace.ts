@@ -24,8 +24,7 @@ import {
   type HistoryFilter,
 } from "../history/store";
 import { RelationGraph } from "../relation-graph";
-import type { RelationRow } from "../relation/store";
-import type { RelatedResult, SqlRow } from "../types";
+import type { RelatedResult, SqlRow, StoredRelation } from "../types";
 import { StateStore } from "./state-store";
 
 // ====== 内部类型 ======
@@ -470,7 +469,7 @@ export class DatabaseWorkspaceService {
 
   // ── 关系 ──────────────────────────────────────────────────
 
-  listRelations(table?: string, database?: string): RelationRow[] {
+  listRelations(table?: string, database?: string): StoredRelation[] {
     const schema = database ?? this.current?.database;
     if (!schema) return this.relationGraph.listAll();
     return this.relationGraph.list(schema, table);
@@ -482,7 +481,7 @@ export class DatabaseWorkspaceService {
     refTable: string,
     refColumn: string,
     opts?: { condition?: string; relationType?: string; database?: string },
-  ): RelationRow {
+  ): StoredRelation {
     const schema = opts?.database ?? this.current?.database;
     if (!schema) throw new Error("No database selected");
     return this.relationGraph.upsert(

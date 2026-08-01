@@ -5,23 +5,7 @@
  */
 
 import Database from "better-sqlite3";
-import type { ColumnRelation } from "../types";
-
-// ====== 类型 ======
-
-export interface RelationRow {
-  id: number;
-  schema: string;
-  table_name: string;
-  column_name: string;
-  condition: string;
-  ref_schema: string;
-  ref_table: string;
-  ref_column: string;
-  relation_type: string;
-  created_time: string;
-  updated_time: string;
-}
+import type { ColumnRelation, StoredRelation } from "../types";
 
 // ====== 存储 ======
 
@@ -74,7 +58,7 @@ export class RelationStore {
   // ── CRUD ──────────────────────────────────────────────────────
 
   /** 幂等保存关系。冲突时创建或更新。返回该行。 */
-  upsert(rel: Omit<ColumnRelation, "id">): RelationRow {
+  upsert(rel: Omit<ColumnRelation, "id">): StoredRelation {
     this.db
       .prepare(`
       INSERT INTO table_relations
@@ -114,7 +98,7 @@ export class RelationStore {
     refSchema: string,
     refTable: string,
     refColumn: string,
-  ): RelationRow | undefined {
+  ): StoredRelation | undefined {
     const row = this.db
       .prepare(`
       SELECT * FROM table_relations
@@ -133,7 +117,7 @@ export class RelationStore {
     table?: string;
     refSchema?: string;
     refTable?: string;
-  }): RelationRow[] {
+  }): StoredRelation[] {
     const conditions: string[] = [];
     const params: any[] = [];
 
@@ -193,19 +177,19 @@ export class RelationStore {
 
   // ── 辅助 ───────────────────────────────────────────────────
 
-  private rowToRelation(row: Record<string, any>): RelationRow {
+  private rowToRelation(row: Record<string, any>): StoredRelation {
     return {
       id: row.id,
       schema: row.schema,
-      table_name: row.table_name,
-      column_name: row.column_name,
+      table: row.table_name,
+      column: row.column_name,
       condition: row.condition,
-      ref_schema: row.ref_schema,
-      ref_table: row.ref_table,
-      ref_column: row.ref_column,
-      relation_type: row.relation_type,
-      created_time: row.created_time,
-      updated_time: row.updated_time,
+      refSchema: row.ref_schema,
+      refTable: row.ref_table,
+      refColumn: row.ref_column,
+      relationType: row.relation_type,
+      createdTime: row.created_time,
+      updatedTime: row.updated_time,
     };
   }
 }

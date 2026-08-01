@@ -15,7 +15,9 @@ export interface ColumnRef {
   condition?: string;
 }
 
-export interface ColumnRelation {
+/** 存储中的一条表关系——camelCase 唯一形状（snake_case 只在 SQLite 边界映射）。 */
+export interface StoredRelation {
+  id: number;
   schema: string;
   table: string;
   column: string;
@@ -24,7 +26,12 @@ export interface ColumnRelation {
   refTable: string;
   refColumn: string;
   relationType: string;
+  createdTime: string;
+  updatedTime: string;
 }
+
+/** 关系输入/领域形状——StoredRelation 去掉持久化字段。 */
+export type ColumnRelation = Omit<StoredRelation, "id" | "createdTime" | "updatedTime">;
 
 // ====== 查询结果类型 ======
 
