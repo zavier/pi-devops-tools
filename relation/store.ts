@@ -27,7 +27,6 @@ export interface RelationRow {
 
 export class RelationStore {
   private db: Database.Database;
-  private initialized = false;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -35,8 +34,6 @@ export class RelationStore {
   }
 
   private init(): void {
-    if (this.initialized) return;
-
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS table_relations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,8 +69,6 @@ export class RelationStore {
         ON table_relations(schema, table_name, column_name, condition,
                            ref_schema, ref_table, ref_column);
     `);
-
-    this.initialized = true;
   }
 
   // ── CRUD ──────────────────────────────────────────────────────
@@ -111,8 +106,7 @@ export class RelationStore {
     )!;
   }
 
-  /** 按完整列元组查找关系。 */
-  findByColumns(
+  private findByColumns(
     schema: string,
     table: string,
     column: string,
@@ -131,15 +125,6 @@ export class RelationStore {
       | Record<string, any>
       | undefined;
     return row ? this.rowToRelation(row) : undefined;
-  }
-
-  /** 按 ID 获取单条关系。 */
-  getById(id: number): RelationRow | undefined {
-    const row = this.db.prepare("SELECT * FROM table_relations WHERE id = ?").get(id) as
-      | Record<string, any>
-      | undefined;
-    if (!row) return undefined;
-    return this.rowToRelation(row);
   }
 
   /** 列出所有关系，可选过滤。 */
@@ -204,20 +189,6 @@ export class RelationStore {
     `)
       .run(schema, table, column, condition, refSchema, refTable, refColumn);
     return result.changes > 0;
-  }
-
-  /** 关系计数，可选过滤。 */
-  count(filter?: { schema?: string }): number {
-    const params: any[] = [];
-    let where = "";
-    if (filter?.schema) {
-      where = "WHERE schema = ?";
-      params.push(filter.schema);
-    }
-    const row = this.db
-      .prepare(`SELECT COUNT(*) as cnt FROM table_relations ${where}`)
-      .get(...params) as { cnt: number };
-    return row.cnt;
   }
 
   // ── 辅助 ───────────────────────────────────────────────────

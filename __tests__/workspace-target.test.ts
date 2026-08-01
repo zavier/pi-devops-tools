@@ -195,7 +195,6 @@ describe("DatabaseWorkspaceService target resolution", () => {
     expect(entry.connectionId).toBe("other");
     expect(entry.database).toBe("stagingdb");
     expect(entry.environment).toBe("staging");
-    expect(ws.getHistoryById(entry.id)?.database).toBe("stagingdb");
   });
 
   it("saveHistory falls back to the workspace selection", () => {

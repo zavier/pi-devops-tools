@@ -190,14 +190,13 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 
 ### 3.6 结果格式化
 
-纯函数模块 `formatting/result-table.ts`，导出四个主要入口：
+纯函数模块 `formatting/result-table.ts`，导出三个主要入口：
 
 | 函数                 | 受众 | 说明                                                                                      |
 | -------------------- | ---- | ----------------------------------------------------------------------------------------- |
 | `formatTableDisplay` | TUI  | 自适应终端宽度 — 先尝试水平表格（`layoutColumns` 列宽打包），放不下则转置，再多行用垂直。 |
 | `formatTableCompact` | LLM  | 无填充紧凑格式，200 字符截断带 `…[+N]` 标记，全部行。                                     |
 | `formatVerticalFull` | TUI  | 展开模式完整键值对，不截断。                                                              |
-| `formatTableResult`  | 兼容 | `formatTableDisplay(120)` 的别名，向后兼容。                                              |
 
 列分析（`analyzeColumns`）在格式化前运行，自动折叠全 NULL 列和值完全相同列，在底部注释汇总（`ⓘ 已隐藏 N 列`）。
 

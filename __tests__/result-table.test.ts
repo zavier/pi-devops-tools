@@ -7,7 +7,6 @@ import {
   layoutColumns,
   formatTableDisplay,
   formatTableCompact,
-  formatTableResult,
 } from "../formatting/result-table";
 
 // ====== 共享测试数据 ======
@@ -330,21 +329,5 @@ describe("formatTableDisplay", () => {
     const result = formatTableDisplay({ columns: cols, rows }, 55);
     // 12 列单行放不下横向 → 转置。格式化器不应崩溃。
     expect(result).not.toBe("（空结果）");
-  });
-});
-
-// ====== formatTableResult（向后兼容别名）======
-
-describe("formatTableResult", () => {
-  it("等价于 formatTableDisplay(120)", () => {
-    const a = formatTableResult(MULTI_ROW);
-    const b = formatTableDisplay(MULTI_ROW, 120);
-    expect(a).toBe(b);
-  });
-
-  it("超多列在 120 宽度下走水平布局", () => {
-    // WIDE_DATA：12 个窄列适配 120 预算
-    const result = formatTableResult(WIDE_DATA);
-    expect(result).toContain("---"); // horizontal
   });
 });

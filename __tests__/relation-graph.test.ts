@@ -191,7 +191,7 @@ function stubQuery(routes: Record<string, Record<string, any>[]>) {
     calls.push({ sql, params });
     const match = sql.match(/FROM `(\w+)`\.`(\w+)`/);
     const rows = match ? (routes[`${match[1]}.${match[2]}`] ?? []) : [];
-    return { columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows, elapsed: "0.001s" };
+    return { rows, elapsed: "0.001s" };
   };
   return { fn, calls };
 }

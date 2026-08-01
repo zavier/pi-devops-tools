@@ -81,7 +81,7 @@ async function handleFavoriteAdd(
   }
 
   if (!sql) {
-    sql = await ctx.ui.editor("SQL 模板（支持多行）", ws.lastSql ?? "SELECT * FROM ... LIMIT 10");
+    sql = await ctx.ui.editor("SQL 模板（支持多行）", "SELECT * FROM ... LIMIT 10");
     if (!sql || !sql.trim()) return;
     sql = sql.trim();
   }

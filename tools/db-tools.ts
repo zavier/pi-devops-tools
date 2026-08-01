@@ -459,14 +459,7 @@ export function registerDbTools(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate) {
       const ws = ready(!!params.database);
-      const schema = params.database ?? ws.current?.database;
-      if (!schema) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: "No database selected. Use /db switch first." }],
-          details: { error: "No database selected" },
-        };
-      }
+      const schema = params.database ?? ws.current!.database;
 
       if (params.action === "register") {
         const row = ws.upsertRelation(
@@ -493,36 +486,25 @@ export function registerDbTools(
         };
       }
 
-      if (params.action === "delete") {
-        const deleted = ws.removeRelationByColumns(
-          schema,
-          params.table,
-          params.column,
-          params.refTable,
-          params.refColumn,
-        );
-        return {
-          content: [
-            {
-              type: "text",
-              text: deleted
-                ? `Deleted relation: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`
-                : `No matching relation found: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`,
-            },
-          ],
-          details: { deleted },
-        };
-      }
-
+      // action 已用 StringEnum 约束为 register/delete，
+      // 走到这里必是 delete。
+      const deleted = ws.removeRelationByColumns(
+        schema,
+        params.table,
+        params.column,
+        params.refTable,
+        params.refColumn,
+      );
       return {
-        isError: true,
         content: [
           {
             type: "text",
-            text: `Unknown action "${(params as any).action}". Expected "register" or "delete".`,
+            text: deleted
+              ? `Deleted relation: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`
+              : `No matching relation found: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`,
           },
         ],
-        details: { error: `Unknown action: ${(params as any).action}` },
+        details: { deleted },
       };
     },
   });

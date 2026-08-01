@@ -2,7 +2,7 @@
  * DatabaseWorkspaceService —— /db 命令背后的唯一模块。
  *
  * 将 WorkspaceContext（状态、切换、schema 缓存）和 QueryRunner
- * （查询执行、历史、lastSql）吸收进一个深度模块。所有委托都是私有字段——
+ * （查询执行、历史）吸收进一个深度模块。所有委托都是私有字段——
  * 命令只能通过下面列出的方法穿越外部接缝。
  */
 
@@ -83,8 +83,11 @@ export class DatabaseWorkspaceService {
 
   // ── 内部状态 ─────────────────────────────────────────────
 
-  current: WorkspaceState | null;
-  private _lastSql: string | null = null;
+  private currentState: WorkspaceState | null;
+
+  get current(): WorkspaceState | null {
+    return this.currentState;
+  }
 
   // ── 构造函数 ────────────────────────────────────────────────
 
@@ -97,7 +100,7 @@ export class DatabaseWorkspaceService {
     this.history = new QueryHistoryStore(this.store.sqlite);
     this.favorites = new FavoriteStore(this.store.sqlite);
     this.relationGraph = new RelationGraph(this.store.sqlite);
-    this.current = loadWorkspace(this.store.workspaceFile);
+    this.currentState = loadWorkspace(this.store.workspaceFile);
   }
 
   // ── 配置重载 ────────────────────────────────────────────
@@ -192,12 +195,6 @@ export class DatabaseWorkspaceService {
     return `🗄 ${this.current.environment}/${this.current.database}`;
   }
 
-  // ── lastSql ────────────────────────────────────────────────────
-
-  get lastSql(): string | null {
-    return this._lastSql;
-  }
-
   // ── 环境 / 连接查找 ────────────────────────────────────────────
 
   getEnvironments(): string[] {
@@ -224,8 +221,8 @@ export class DatabaseWorkspaceService {
   // ── 切换 ─────────────────────────────────────────────────────
 
   switchTo(environment: string, connectionId: string, database: string): void {
-    this.current = { environment, connectionId, database };
-    saveWorkspace(this.store.workspaceFile, this.current);
+    this.currentState = { environment, connectionId, database };
+    saveWorkspace(this.store.workspaceFile, this.currentState);
   }
 
   // ── 目标解析 ──────────────────────────────────────────────────
@@ -334,7 +331,12 @@ export class DatabaseWorkspaceService {
     if (autoJoin && result.rows.length > 0) {
       try {
         related = await this.relationGraph.bfsQuery(
-          (s, params) => this.manager.executeQuery(connectionId, database, s, { params }),
+          async (s, params) => {
+            const { rows, elapsed } = await this.manager.executeQuery(connectionId, database, s, {
+              params,
+            });
+            return { rows, elapsed };
+          },
           database,
           table,
           result.rows,
@@ -367,7 +369,6 @@ export class DatabaseWorkspaceService {
   }> {
     const target = this.resolveTarget(opts);
     const result = await this.manager.executeMutation(target.connectionId, target.database, sql);
-    this._lastSql = sql;
     return { ...result, connectionId: target.connectionId, database: target.database };
   }
 
@@ -380,7 +381,6 @@ export class DatabaseWorkspaceService {
         ? { connectionId: this.current.connectionId, database: this.current.database }
         : null);
     if (!t) throw new Error("No database selected");
-    this._lastSql = sql;
     return this.history.save({
       connectionId: t.connectionId,
       environment:
@@ -399,10 +399,6 @@ export class DatabaseWorkspaceService {
     if (keyword) filter.keyword = keyword;
     if (this.current) filter.database = this.current.database;
     return this.history.list(filter);
-  }
-
-  getHistoryById(id: number): HistoryEntry | undefined {
-    return this.history.getById(id);
   }
 
   deleteHistory(id: number): boolean {
