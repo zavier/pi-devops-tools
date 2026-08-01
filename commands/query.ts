@@ -20,7 +20,7 @@ import { READONLY_SQL_RE } from "../connection/sql-policy";
 import { formatTableCompact } from "../formatting/result-table";
 import { pickTableFuzzy, withLoader } from "./utils";
 import type { QueryResultEntryData, RelatedTuiData } from "./renderers";
-import type { RelatedBrowserCache } from "./related-browser";
+import type { RelatedBrowserCacheStore } from "./related-browser";
 
 interface ExecutedResult {
   columns: string[];
@@ -77,15 +77,6 @@ export function toRelatedTuiData(related: RelatedResult[]): RelatedTuiData[] {
   }));
 }
 
-// ── 最近关联查询缓存（/db related 浏览器入口用）──
-
-let lastRelatedCache: RelatedBrowserCache | null = null;
-
-/** 最近一次关联查询的结果缓存；无关联查询时返回 null。 */
-export function getLastRelatedCache(): RelatedBrowserCache | null {
-  return lastRelatedCache;
-}
-
 // ── 展示（双受众：TUI 条目 + LLM 上下文）──────────
 
 async function displayQueryResult(
@@ -94,6 +85,7 @@ async function displayQueryResult(
   pi: ExtensionAPI,
   result: ExecutedResult,
   related: RelatedResult[] = [],
+  relatedCache?: RelatedBrowserCacheStore,
 ): Promise<void> {
   const database = ws.current!.database;
   try {
@@ -106,7 +98,7 @@ async function displayQueryResult(
 
   const relatedTui = toRelatedTuiData(related);
   if (relatedTui.length > 0) {
-    lastRelatedCache = { database, sql: result.sql, related: relatedTui };
+    relatedCache?.set({ database, sql: result.sql, related: relatedTui });
   }
 
   pi.appendEntry("db-query-result", {
@@ -173,6 +165,7 @@ async function queryByTable(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
   preSelectedTable?: string,
+  relatedCache?: RelatedBrowserCacheStore,
 ): Promise<void> {
   const table = preSelectedTable ?? (await pickTableFuzzy(ctx, ws, "选择数据表"));
   if (!table) return;
@@ -206,7 +199,7 @@ async function queryByTable(
       ctx.ui.notify(`查询出错：${err.message}`, "error");
       return;
     }
-    await displayQueryResult(ctx, ws, pi, result, result.related);
+    await displayQueryResult(ctx, ws, pi, result, result.related, relatedCache);
   } else {
     await executeAndDisplay(ctx, ws, pi, sql);
   }
@@ -233,6 +226,7 @@ export async function handleQuery(
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
   tableArg?: string,
+  relatedCache?: RelatedBrowserCacheStore,
 ): Promise<void> {
   if (!ws.isReady) {
     ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
@@ -247,7 +241,7 @@ export async function handleQuery(
       tables = [];
     }
     if (tables.includes(tableArg)) {
-      return await queryByTable(ctx, ws, pi, tableArg);
+      return await queryByTable(ctx, ws, pi, tableArg, relatedCache);
     }
     if (READONLY_SQL_RE.test(tableArg)) {
       return await executeAndDisplay(ctx, ws, pi, tableArg);
@@ -264,5 +258,5 @@ export async function handleQuery(
   if (choice === "__sql__") {
     return await queryRaw(ctx, ws, pi);
   }
-  return await queryByTable(ctx, ws, pi, choice);
+  return await queryByTable(ctx, ws, pi, choice, relatedCache);
 }

@@ -5,6 +5,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { withLoader } from "./utils";
+import { sendActiveDb, sendUnconfiguredHint } from "./llm-context";
 
 export const STATUS_KEY = "db-workspace";
 
@@ -81,14 +82,7 @@ export async function showWorkspacePanel(
   // display: false 让它不进聊天；triggerTurn 让 AI
   // 主动提议帮助建立第一个连接。
   if (!ws.isConfigured && pi) {
-    pi.sendMessage(
-      {
-        customType: "db-hint",
-        content: `No database connections are configured yet. Help the user create their first connection in ${ws.configPath}. Ask for host, port, username, password, and default database name. After the config file is written, tell the user to run /db switch to connect.`,
-        display: false,
-      },
-      { deliverAs: "followUp", triggerTurn: true },
-    );
+    sendUnconfiguredHint(pi, ws.configPath);
   }
 }
 
@@ -180,14 +174,7 @@ export async function handleSwitch(
 
   // 告知 LLM 当前激活的数据库，避免它猜测。
   // display: false 避免冗余消息污染聊天。
-  pi.sendMessage(
-    {
-      customType: "db-active-db",
-      content: `Current database: ${database} (connection: ${connectionId}, environment: ${env}). Use db_query and db_tables to query this database.`,
-      display: false,
-    },
-    { deliverAs: "followUp", triggerTurn: false },
-  );
+  sendActiveDb(pi, ws);
 
   ctx.ui.notify(`已连接：${env}/${database} @ ${connectionId}`, "info");
 }

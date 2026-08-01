@@ -33,6 +33,22 @@ export interface RelatedBrowserCache {
   related: RelatedTuiData[];
 }
 
+/**
+ * 最近关联查询缓存的持有者——经调用链注入（db.ts 注册时创建、
+ * 传给 query 路径写入、related 路径读取），替代 module 级单例。
+ */
+export class RelatedBrowserCacheStore {
+  private current: RelatedBrowserCache | null = null;
+
+  set(cache: RelatedBrowserCache): void {
+    this.current = cache;
+  }
+
+  get(): RelatedBrowserCache | null {
+    return this.current;
+  }
+}
+
 // ── 表切换 reducer（纯函数，可单测）────────────────
 
 export interface BrowserNav {
