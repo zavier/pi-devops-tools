@@ -24,7 +24,7 @@ import {
   type HistoryFilter,
 } from "../history/store";
 import { RelationGraph } from "../relation-graph";
-import type { RelatedResult, SqlRow, StoredRelation } from "../types";
+import type { RelatedResult, SqlRow, StoredRelation, TableSchema } from "../types";
 import { StateStore } from "./state-store";
 
 // ====== 内部类型 ======
@@ -306,7 +306,7 @@ export class DatabaseWorkspaceService {
   async getTableSchema(
     table: string,
     opts?: { connectionId?: string; database?: string },
-  ): Promise<{ columns: SqlRow[]; indexes: SqlRow[] }> {
+  ): Promise<TableSchema> {
     const target = this.resolveTarget(opts);
     return this.manager.getTableSchema(target.connectionId, target.database, table);
   }

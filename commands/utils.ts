@@ -21,7 +21,7 @@ import { createFilterReducer } from "./filter-input";
  * @param extraItems —— 前置在表项之前（如 "✏️ 输入 SQL…"）
  *   用于合并的查询入口）。
  *
- * 由 schema、query、relations-add 和 relations-er-diagram 处理器共享。
+ * 由 schema、query、relations-add 处理器共享。
  */
 export async function pickTableFuzzy(
   ctx: ExtensionCommandContext,

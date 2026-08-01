@@ -9,6 +9,7 @@
 import mysql, { type Pool, type RowDataPacket, type ResultSetHeader } from "mysql2/promise";
 import type { ResolvedConnectionConfig } from "./db-config";
 import { prepareReadOnlyQuery, DEFAULT_QUERY_LIMIT } from "./sql-policy";
+import type { SchemaIndex, TableSchema } from "../types";
 
 export interface QueryOptions {
   limit?: number; // row cap for SELECTs without trailing LIMIT (default: connection's queryLimit)
@@ -107,7 +108,7 @@ export class DatabaseConnectionManager {
     connectionId: string,
     database: string,
     table: string,
-  ): Promise<{ columns: RowDataPacket[]; indexes: RowDataPacket[] }> {
+  ): Promise<TableSchema> {
     const pool = this.getPool(connectionId);
 
     const [columns] = await pool.query<RowDataPacket[]>(
@@ -126,7 +127,29 @@ export class DatabaseConnectionManager {
       [database, table],
     );
 
-    return { columns, indexes };
+    return {
+      columns: columns.map((c) => ({
+        name: c.COLUMN_NAME as string,
+        type: c.COLUMN_TYPE as string,
+        nullable: c.IS_NULLABLE === "YES",
+        key: (c.COLUMN_KEY as string) ?? "",
+        default: (c.COLUMN_DEFAULT as string | null) ?? null,
+        extra: (c.EXTRA as string) ?? "",
+        comment: (c.COLUMN_COMMENT as string) ?? "",
+      })),
+      indexes: this.aggregateIndexes(indexes),
+    };
+  }
+
+  /** 将 information_schema.STATISTICS 行按索引名聚合成 SchemaIndex[]。 */
+  private aggregateIndexes(rows: RowDataPacket[]): SchemaIndex[] {
+    const map = new Map<string, { cols: string[]; unique: boolean }>();
+    for (const idx of rows) {
+      const name = idx.INDEX_NAME as string;
+      if (!map.has(name)) map.set(name, { cols: [], unique: idx.NON_UNIQUE === 0 });
+      map.get(name)!.cols.push(idx.COLUMN_NAME as string);
+    }
+    return [...map.entries()].map(([name, { cols, unique }]) => ({ name, columns: cols, unique }));
   }
 
   /**

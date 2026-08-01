@@ -4,7 +4,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import type { SqlRow } from "../types";
+import type { TableSchema } from "../types";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
 import { pickTableFuzzy } from "./utils";
 
@@ -25,7 +25,7 @@ export async function handleSchema(
     table = picked;
   }
 
-  let result: { columns: SqlRow[]; indexes: SqlRow[] };
+  let result: TableSchema;
   try {
     result = await ws.getTableSchema(table);
   } catch (err: any) {

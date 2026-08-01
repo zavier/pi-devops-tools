@@ -1,31 +1,31 @@
 import { describe, it, expect } from "vitest";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
-import type { SqlRow } from "../types";
+import type { SchemaColumn, SchemaIndex } from "../types";
 
-const columns: SqlRow[] = [
+const columns: SchemaColumn[] = [
   {
-    COLUMN_NAME: "id",
-    COLUMN_TYPE: "bigint(20)",
-    IS_NULLABLE: "NO",
-    COLUMN_KEY: "PRI",
-    COLUMN_DEFAULT: null,
-    EXTRA: "auto_increment",
-    COLUMN_COMMENT: "",
+    name: "id",
+    type: "bigint(20)",
+    nullable: false,
+    key: "PRI",
+    default: null,
+    extra: "auto_increment",
+    comment: "",
   },
   {
-    COLUMN_NAME: "user_id",
-    COLUMN_TYPE: "bigint(20)",
-    IS_NULLABLE: "YES",
-    COLUMN_KEY: "MUL",
-    COLUMN_DEFAULT: null,
-    EXTRA: "",
-    COLUMN_COMMENT: "下单用户",
+    name: "user_id",
+    type: "bigint(20)",
+    nullable: true,
+    key: "MUL",
+    default: null,
+    extra: "",
+    comment: "下单用户",
   },
 ];
 
-const indexes: SqlRow[] = [
-  { INDEX_NAME: "PRIMARY", COLUMN_NAME: "id", NON_UNIQUE: 0, SEQ_IN_INDEX: 1 },
-  { INDEX_NAME: "idx_user", COLUMN_NAME: "user_id", NON_UNIQUE: 1, SEQ_IN_INDEX: 1 },
+const indexes: SchemaIndex[] = [
+  { name: "PRIMARY", columns: ["id"], unique: true },
+  { name: "idx_user", columns: ["user_id"], unique: false },
 ];
 
 describe("formatSchemaMarkdown", () => {
@@ -42,15 +42,15 @@ describe("formatSchemaMarkdown", () => {
   });
 
   it("escapes pipe characters in comments so the table doesn't break", () => {
-    const cols: SqlRow[] = [
+    const cols: SchemaColumn[] = [
       {
-        COLUMN_NAME: "type",
-        COLUMN_TYPE: "varchar(10)",
-        IS_NULLABLE: "YES",
-        COLUMN_KEY: "",
-        COLUMN_DEFAULT: null,
-        EXTRA: "",
-        COLUMN_COMMENT: "a|b",
+        name: "type",
+        type: "varchar(10)",
+        nullable: true,
+        key: "",
+        default: null,
+        extra: "",
+        comment: "a|b",
       },
     ];
     const out = formatSchemaMarkdown("t", "db", cols, []);
