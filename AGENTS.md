@@ -43,7 +43,7 @@ npm run fmt:check   # oxfmt --check          —— 必须通过（与 fmt 重�
 ## 设计底线
 
 - **Facade 完整性**：命令永远不越过 `DatabaseWorkspaceService`。所有委托（`manager`、`history`、`favorites`、`relationGraph`）都是 facade 的私有字段。命令需要新行为时，在 facade 上暴露专用方法——不要穿透到内部。
-- **每种操作单一执行路径**：所有读查询流经 `DatabaseConnectionManager.executeQuery`（只读守卫 + LIMIT）。所有写变更流经 `DatabaseConnectionManager.executeMutation`（`prepareMutationQuery` 拒绝 DDL，人工确认门）。绝不创建新的查询路径或绕过 `sql-policy.ts`。
+- **每种操作单一执行路径**：所有读查询流经 `DatabaseConnectionManager.executeQuery`（只读守卫 + LIMIT）。所有写变更流经 `DatabaseWorkspaceService.executeMutationWithApproval`（facade 内 `prepareMutationQuery` 拒绝 DDL + 注入的人工确认回调）。绝不创建新的查询路径或绕过 `sql-policy.ts`。
 - **纯工具函数**：`sql-policy.ts`（只读守卫 + LIMIT 注入 + DML 校验）和 `formatting/result-table.ts` 是纯函数、无副作用。保持这一点——不导入 pi、不做 I/O。当逻辑不需要 pi API 时，抽成纯函数以便用普通值测试。
 - **测试接缝**：模块通过构造函数参数接受依赖（`StateStore`、`Database` 句柄、`QueryFn`）。不要引入硬编码路径（如 `homedir()`）或单例——注入接缝。
 - **实时 schema，无缓存**：`getTables()` 和 `getTableSchema()` 总是查询实时 DB（`information_schema`）。没有 schema 缓存需要刷新或保持一致——实时查询足够廉价且永不过期。没有实测需求就不要重新引入缓存层。

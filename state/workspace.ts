@@ -15,6 +15,7 @@ import {
   type ResolvedConnectionConfig,
 } from "../connection/db-config";
 import { DatabaseConnectionManager } from "../connection/db-manager";
+import { prepareMutationQuery } from "../connection/sql-policy";
 import {
   QueryHistoryStore,
   FavoriteStore,
@@ -40,6 +41,27 @@ export interface QueryTarget {
   connectionId: string;
   database: string;
 }
+
+/** 写操作确认请求：校验结果 + 解析后的目标，由 facade 合并后交给确认回调。 */
+export interface MutationApprovalRequest {
+  sql: string;
+  operation: "INSERT" | "UPDATE" | "DELETE" | "REPLACE";
+  warning?: string;
+  connectionId: string;
+  database: string;
+}
+
+/** 写操作结果：用户拒绝是正常结果（rejected），非异常。 */
+export type MutationOutcome =
+  | { status: "rejected"; sql: string }
+  | {
+      status: "executed";
+      affectedRows: number;
+      elapsed: string;
+      sql: string;
+      connectionId: string;
+      database: string;
+    };
 
 // ====== 持久化辅助 ======
 
@@ -351,25 +373,44 @@ export class DatabaseWorkspaceService {
     return { ...result, related };
   }
 
-  // ── 变更 ───────────────────────────────────────────────────
+  // ── 变更（唯一写入口）────────────────────────────────
 
   /**
-   * 执行数据变更（INSERT/UPDATE/DELETE/REPLACE）。
-   * 绕过只读守卫——调用方必须自行落实批准门。
+   * 执行数据变更（INSERT/UPDATE/DELETE/REPLACE）——唯一写路径，持有完整仪式：
+   * 校验（DDL 直接抛 MutationValidationError，不进入确认）→ 人工确认 →
+   * 执行。确认回调由调用方注入（生产 = showMutationConfirm，测试 = stub），
+   * facade 保持 pi-free。用户拒绝是正常结果（status: "rejected"），非异常。
    */
-  async executeMutation(
+  async executeMutationWithApproval(
     sql: string,
-    opts?: { connectionId?: string; database?: string },
-  ): Promise<{
-    affectedRows: number;
-    elapsed: string;
-    sql: string;
-    connectionId: string;
-    database: string;
-  }> {
+    opts: { connectionId?: string; database?: string },
+    confirm: (req: MutationApprovalRequest) => Promise<boolean>,
+  ): Promise<MutationOutcome> {
+    const validation = prepareMutationQuery(sql);
     const target = this.resolveTarget(opts);
-    const result = await this.manager.executeMutation(target.connectionId, target.database, sql);
-    return { ...result, connectionId: target.connectionId, database: target.database };
+
+    const approved = await confirm({
+      sql: validation.sql,
+      operation: validation.operation,
+      warning: validation.warning,
+      connectionId: target.connectionId,
+      database: target.database,
+    });
+    if (!approved) {
+      return { status: "rejected", sql: validation.sql };
+    }
+
+    const result = await this.manager.executeMutation(
+      target.connectionId,
+      target.database,
+      validation.sql,
+    );
+    return {
+      status: "executed",
+      ...result,
+      connectionId: target.connectionId,
+      database: target.database,
+    };
   }
 
   // ── 历史 ────────────────────────────────────────────────────

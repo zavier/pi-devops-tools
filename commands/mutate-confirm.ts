@@ -9,14 +9,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { Container, Text, Spacer, matchesKey, Key } from "@earendil-works/pi-tui";
-
-export interface MutationConfirmParams {
-  sql: string;
-  operation: "INSERT" | "UPDATE" | "DELETE" | "REPLACE";
-  warning?: string;
-  connectionId: string;
-  database: string;
-}
+import type { MutationApprovalRequest } from "../state/workspace";
 
 type StyleColor = "success" | "warning" | "error";
 
@@ -38,7 +31,7 @@ const DEFAULT_WARNING = "该操作将永久修改数据，无法撤销";
  */
 export async function showMutationConfirm(
   ctx: ExtensionContext,
-  params: MutationConfirmParams,
+  params: MutationApprovalRequest,
 ): Promise<boolean> {
   if (ctx.mode !== "tui") {
     const label = `${OP_STYLE[params.operation]?.icon ?? "⚠️"} ${params.operation}`;

@@ -23,7 +23,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { formatTableCompact } from "../formatting/result-table";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
-import { prepareMutationQuery } from "../connection/sql-policy";
+import { MutationValidationError } from "../connection/sql-policy";
 import { showMutationConfirm } from "../commands/mutate-confirm";
 import { LOADER_TOOL_NAME, LAZY_TOOL_INFO, matchDbTools } from "./db-tool-catalog";
 export { applyInitialToolSet } from "./db-tool-catalog";
@@ -338,78 +338,53 @@ export function registerDbTools(
       ...targetParams,
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      // 1. 校验 SQL 是否为 DML 变更
-      let validation: ReturnType<typeof prepareMutationQuery>;
-      try {
-        validation = prepareMutationQuery(params.sql);
-      } catch (err: any) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `SQL rejected: ${err.message}` }],
-          details: { error: err.message },
-        };
-      }
-
-      // 2. 解析目标
       const ws = getWorkspace();
-      const target = ws.resolveTarget({
-        connectionId: params.connection,
-        database: params.database,
-      });
-
-      // 3. 显示确认对话框
-      const confirmed = await showMutationConfirm(ctx, {
-        sql: validation.sql,
-        operation: validation.operation,
-        warning: validation.warning,
-        connectionId: target.connectionId,
-        database: target.database,
-      });
-
-      if (!confirmed) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Mutation rejected by user: ${validation.sql}`,
-            },
-          ],
-          details: { rejected: true, sql: validation.sql },
-        };
-      }
-
-      // 4. 执行
       try {
-        const result = await ws.executeMutation(validation.sql, {
-          connectionId: params.connection,
-          database: params.database,
-        });
+        const outcome = await ws.executeMutationWithApproval(
+          params.sql,
+          {
+            connectionId: params.connection,
+            database: params.database,
+          },
+          (req) => showMutationConfirm(ctx, req),
+        );
+
+        // 用户拒绝是正常结果——非 isError，回显被拒语句。
+        if (outcome.status === "rejected") {
+          return {
+            content: [{ type: "text", text: `Mutation rejected by user: ${outcome.sql}` }],
+            details: { rejected: true, sql: outcome.sql },
+          };
+        }
+
         return {
           content: [
             {
               type: "text",
               text: [
                 `✅ Mutation executed successfully.`,
-                `Connection: ${result.connectionId}`,
-                `Database: ${result.database}`,
-                `SQL: ${result.sql}`,
-                `Affected rows: ${result.affectedRows} (${result.elapsed})`,
+                `Connection: ${outcome.connectionId}`,
+                `Database: ${outcome.database}`,
+                `SQL: ${outcome.sql}`,
+                `Affected rows: ${outcome.affectedRows} (${outcome.elapsed})`,
               ].join("\n"),
             },
           ],
           details: {
-            sql: result.sql,
-            affectedRows: result.affectedRows,
-            elapsed: result.elapsed,
-            connection: result.connectionId,
-            database: result.database,
+            sql: outcome.sql,
+            affectedRows: outcome.affectedRows,
+            elapsed: outcome.elapsed,
+            connection: outcome.connectionId,
+            database: outcome.database,
           },
         };
       } catch (err: any) {
+        // 校验拒绝（DDL 等）与执行失败都从 facade 抛出，用错误类型区分措辞。
+        const prefix = err instanceof MutationValidationError ? "SQL rejected" : "Mutation failed";
         return {
           isError: true,
-          content: [{ type: "text", text: `Mutation failed: ${err.message}` }],
-          details: { sql: validation.sql, error: err.message },
+          content: [{ type: "text", text: `${prefix}: ${err.message}` }],
+          details: { sql: params.sql, error: err.message },
         };
       }
     },

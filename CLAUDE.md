@@ -53,7 +53,7 @@ formatting/        ← formatTableResult —— 自动布局：横向 / 转置 /
 ### 关键设计模式
 
 - **深度工作空间模块**：`DatabaseWorkspaceService` 将 WorkspaceContext + QueryRunner 吸收进一个类。所有委托（`manager`、`history`、`favorites`、`relationGraph`）都是私有字段——命令通过约 23 个专用方法穿越外部接缝。任何命令都不能越过 facade。
-- **单一执行点**：所有读查询经过 `DatabaseConnectionManager.executeQuery`，它应用只读守卫和 LIMIT 策略（`connection/sql-policy.ts`——纯函数，`READONLY_SQL_RE` 的唯一归属），然后在检出的专用连接上执行（`getConnection → USE → query → release`），这样 USE 与查询不会散落在连接池的不同连接上。无界 SELECT 自动追加 `LIMIT n`（默认 100，connections.yaml 中可配 per-connection `queryLimit`）；最终 SQL 通过 `result.sql` 返回，用户可以看到自动追加的 LIMIT。写操作经过 `DatabaseConnectionManager.executeMutation`——没有只读守卫，但由 `prepareMutationQuery`（拒绝 DDL）和强制人工确认对话框把关。命令处理器只在分发时（表名 vs SQL）导入 `READONLY_SQL_RE`，绝不用于执行期校验。
+- **单一执行点**：所有读查询经过 `DatabaseConnectionManager.executeQuery`，它应用只读守卫和 LIMIT 策略（`connection/sql-policy.ts`——纯函数，`READONLY_SQL_RE` 的唯一归属），然后在检出的专用连接上执行（`getConnection → USE → query → release`），这样 USE 与查询不会散落在连接池的不同连接上。无界 SELECT 自动追加 `LIMIT n`（默认 100，connections.yaml 中可配 per-connection `queryLimit`）；最终 SQL 通过 `result.sql` 返回，用户可以看到自动追加的 LIMIT。写操作经过 `DatabaseWorkspaceService.executeMutationWithApproval`——唯一写入口，在 facade 内完成 `prepareMutationQuery`（DDL 拒绝，抛 `MutationValidationError`）→ 人工确认（注入的确认回调，生产为 `showMutationConfirm`）→ 执行。命令处理器只在分发时（表名 vs SQL）导入 `READONLY_SQL_RE`，绝不用于执行期校验。
 - **实时 schema**：`getTables()` 和 `getTableSchema()` 总是查询 `information_schema`——无缓存、无刷新。实践中足够廉价且永不过期。
 - **BFS 自动 JOIN**：`RelationGraph.bfsQuery()` 遍历内存前向图，每跳发出参数化（`IN (?)`）、schema 限定的查询。深度受限（默认 2，最大 5）。它从调用方接收 `QueryFn` 而非 mysql2 连接池——图保持数据库无关，用 stub 测试。
 - **懒加载工作空间初始化**：`DatabaseWorkspaceService` 不在扩展工厂中构造（工厂可能运行在从不启动会话的调用中，如 `--list-models` 或 print 模式）。懒 getter 将打开 SQLite / 读取配置推迟到 `session_start`、第一次 `/db` 命令或第一次工具调用。
@@ -76,7 +76,7 @@ formatting/        ← formatTableResult —— 自动布局：横向 / 转置 /
 
 `db_query` 和 `db_tables` 默认使用工作空间选择，但接受可选的 `connection` / `database` 覆盖，由 `DatabaseWorkspaceService.resolveTarget` 解析（显式 connection 不带 database 时回退到其 `defaultDatabase`）。`db_list_relations` / `db_relation` 接受可选的 `database` 覆盖。同一 MySQL 实例上的数据库可以用 `db.table` 限定名直接 JOIN——连接池不带默认数据库连接，所以 `USE` 从来不是沙箱。
 
-只读工具 `db_query` 经过 `DatabaseWorkspaceService.executeQuery`，因此只读守卫和 LIMIT 策略生效。`db_tables` 使用与 `/db` 命令相同的实时 `information_schema` 查询（`getTables` / `getTableSchema`）。`db_discover` 读取本地连接配置并通过 manager 上的 `SHOW DATABASES` 列出数据库。`db_list_relations` / `db_relation` 通过 `RelationGraph` / `RelationStore` 操作本地 SQLite——它们不触碰 MySQL，不需要只读守卫或确认门（register 幂等，delete 按精确列对匹配）。`db_mutate` 使用 `executeMutation`——没有只读守卫，但 `prepareMutationQuery` 拒绝 DDL，每次执行都有确认对话框把关。`db_tools`（loader）只操作激活工具集。
+只读工具 `db_query` 经过 `DatabaseWorkspaceService.executeQuery`，因此只读守卫和 LIMIT 策略生效。`db_tables` 使用与 `/db` 命令相同的实时 `information_schema` 查询（`getTables` / `getTableSchema`）。`db_discover` 读取本地连接配置并通过 manager 上的 `SHOW DATABASES` 列出数据库。`db_list_relations` / `db_relation` 通过 `RelationGraph` / `RelationStore` 操作本地 SQLite——它们不触碰 MySQL，不需要只读守卫或确认门（register 幂等，delete 按精确列对匹配）。`db_mutate` 调用 `executeMutationWithApproval`——校验与确认都发生在 facade 内，工具只注入确认对话框回调并整形结果。`db_tools`（loader）只操作激活工具集。
 
 ### 消息渲染
 
