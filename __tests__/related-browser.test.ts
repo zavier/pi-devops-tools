@@ -1,12 +1,18 @@
 /**
- * commands/related-browser.ts 的测试——表切换 reducer 与内容生成纯函数。
+ * commands/related-browser.ts 的测试——表切换 reducer、内容分段生成、
+ * 滚动信息与底栏纯函数。
  *
  * reducer 接收原始终端字节（\x1b[D 等 CSI 序列或 Kitty CSI-u），
  * 通过 matchesKey 解码——与 filter-input 测试同一契约。
  */
 import { describe, it, expect } from "vitest";
 import { matchesKey, Key } from "@earendil-works/pi-tui";
-import { createBrowserNav, formatBrowserContent } from "../commands/related-browser";
+import {
+  createBrowserNav,
+  buildBrowserContent,
+  formatScrollInfo,
+  formatBrowserFooter,
+} from "../commands/related-browser";
 import type { RelatedBrowserCache } from "../commands/related-browser";
 
 /** 构造一条浏览器缓存（两个关联表）。 */
@@ -92,42 +98,95 @@ describe("createBrowserNav", () => {
   });
 });
 
-// ====== formatBrowserContent ======
+// ====== buildBrowserContent ======
 
-describe("formatBrowserContent", () => {
-  it("标题行包含数据库名与关联表数量", () => {
-    const lines = formatBrowserContent(cache(), 0, 80);
-    expect(lines[0]).toContain("shop");
-    expect(lines[0]).toContain("2 个");
+describe("buildBrowserContent", () => {
+  it("title 包含数据库名与关联表数量", () => {
+    const content = buildBrowserContent(cache(), 0, 80);
+    expect(content.title).toContain("shop");
+    expect(content.title).toContain("2 个关联表");
   });
 
-  it("表切换行：当前表带 ▶ 标记", () => {
-    const lines = formatBrowserContent(cache(), 1, 80);
-    const tabs = lines[1];
-    expect(tabs).toContain("▶ products（2 行）");
-    expect(tabs).toContain("  users（1 行）");
+  it("tabs：当前表 active 标记正确", () => {
+    const content = buildBrowserContent(cache(), 1, 80);
+    expect(content.tabs).toEqual([
+      { label: "users（1 行）", active: false },
+      { label: "products（2 行）", active: true },
+    ]);
   });
 
   it("显示当前表的关联路径", () => {
-    const lines = formatBrowserContent(cache(), 0, 80);
-    expect(lines.join("\n")).toContain("路径：orders.user_id → users.id");
+    const content = buildBrowserContent(cache(), 0, 80);
+    expect(content.path).toBe("orders.user_id → users.id");
   });
 
   it("渲染当前表的表格内容", () => {
-    const lines = formatBrowserContent(cache(), 1, 80);
-    const text = lines.join("\n");
-    expect(text).toContain("keyboard");
-    expect(text).toContain("mouse");
+    const content = buildBrowserContent(cache(), 1, 80);
+    expect(content.empty).toBe(false);
+    expect(content.table.join("\n")).toContain("keyboard");
+    expect(content.table.join("\n")).toContain("mouse");
   });
 
-  it("空表输出（空结果）占位", () => {
+  it("空表：empty=true 且无表格行", () => {
     const c = cache();
     c.related[0].rows = [];
-    const lines = formatBrowserContent(c, 0, 80);
-    expect(lines.join("\n")).toContain("（空结果）");
+    const content = buildBrowserContent(c, 0, 80);
+    expect(content.empty).toBe(true);
+    expect(content.table).toEqual([]);
   });
 
-  it("index 越界返回空数组", () => {
-    expect(formatBrowserContent(cache(), 99, 80)).toEqual([]);
+  it("index 越界返回空结构", () => {
+    const content = buildBrowserContent(cache(), 99, 80);
+    expect(content).toEqual({ title: "", tabs: [], path: "", table: [], empty: true });
+  });
+
+  it("关联表超过 6 个时折叠为 … 还有 N 个", () => {
+    const c = cache();
+    for (let i = 2; i < 9; i++) {
+      c.related.push({
+        schema: "shop",
+        table: `t${i}`,
+        joinPath: "",
+        rowCount: 0,
+        elapsed: "0.001s",
+        columns: ["id"],
+        rows: [],
+      });
+    }
+    const content = buildBrowserContent(c, 0, 80);
+    expect(content.tabs.length).toBe(7); // 6 个 + 折叠项
+    expect(content.tabs[6]).toEqual({ label: "… 还有 3 个", active: false });
+  });
+});
+
+// ====== formatScrollInfo / formatBrowserFooter ======
+
+describe("formatScrollInfo", () => {
+  it("内容不超可视高度时为空", () => {
+    expect(formatScrollInfo(0, 20, 10)).toBe("");
+  });
+
+  it("有滚动时返回 起始-结束/总数 行", () => {
+    expect(formatScrollInfo(0, 20, 30)).toBe("1-20/30 行");
+    expect(formatScrollInfo(2, 20, 30)).toBe("3-22/30 行");
+  });
+
+  it("滚动到底部时结束值取总数", () => {
+    expect(formatScrollInfo(25, 20, 30)).toBe("26-30/30 行");
+  });
+});
+
+describe("formatBrowserFooter", () => {
+  it("无滚动时只显示快捷键提示", () => {
+    const text = formatBrowserFooter(0, 20, 10);
+    expect(text).toContain("←→ 切换");
+    expect(text).toContain("Esc 关闭");
+    expect(text).not.toContain("行");
+  });
+
+  it("有滚动时附加位置信息", () => {
+    expect(formatBrowserFooter(0, 20, 30)).toBe(
+      "←→ 切换 · ↑↓ 滚动 · PgUp/PgDn 翻页 · Esc 关闭    1-20/30 行",
+    );
   });
 });

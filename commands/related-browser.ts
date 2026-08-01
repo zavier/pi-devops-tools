@@ -7,6 +7,16 @@
  * - Esc 关闭
  *
  * 数据来自 query.ts 的最近关联查询缓存（会话内有效）。
+ *
+ * 视觉层次（自上而下）：
+ *   ┌ 边框（accent）──────────────┐
+ *   │ 📎 关联表浏览器 — db（N 个）   │ ← 标题：accent+bold + dim 副标题
+ *   │ ▶ users（2 行）  products     │ ← 表切换：当前表 accent+bold，其余 dim
+ *   │ 路径：orders.user_id → users  │ ← muted
+ *   │ ────────── 分隔线 ─────────   │
+ *   │ (表格内容，滚动区)             │
+ *   │ ←→ 切换 · ↑↓ 滚动 · Esc 关闭  [1-12/30 行] ← 底栏 dim + 滚动位置
+ *   └──────────────────────────────┘
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -65,56 +75,88 @@ export function createBrowserNav(total: number): {
 
 // ── 内容生成（纯函数，可单测）──────────────────────
 
+/** 表切换行的一项。active 表示当前正在浏览的表。 */
+export interface BrowserTab {
+  label: string;
+  active: boolean;
+}
+
+/** 浏览器内容的分段结构——组件渲染时对每段套不同样式。 */
+export interface BrowserContent {
+  /** 副标题（数据库名 + 关联表数量），如 `shop（2 个关联表）`。 */
+  title: string;
+  /** 表切换行（当前表 active=true）。 */
+  tabs: BrowserTab[];
+  /** 当前表的关联路径；无则为空字符串。 */
+  path: string;
+  /** 当前表表格行（已按宽度自适应格式化）。 */
+  table: string[];
+  /** 当前表无数据。 */
+  empty: boolean;
+}
+
+/** 表切换行最多展示的标签数，超出折叠为 `… 还有 N 个`。 */
+const MAX_TABS = 6;
+
 /**
- * 生成浏览器内容行：标题 + 表切换行 + 关联路径 + 当前表表格。
- * 无 theme 依赖，方便单独测试。
+ * 构建浏览器内容的分段结构。无 theme 依赖，方便单独测试。
+ * 样式（颜色/加粗）由组件在渲染时应用。
  */
-export function formatBrowserContent(
+export function buildBrowserContent(
   cache: RelatedBrowserCache,
   index: number,
   width: number,
-): string[] {
+): BrowserContent {
   const r = cache.related[index];
-  if (!r) return [];
-
-  const lines: string[] = [];
-
-  // 标题行（含操作提示）
-  lines.push(
-    `📎 关联表浏览器 — ${cache.database}（${cache.related.length} 个）  [←→ 切换 · ↑↓ 滚动 · Esc 关闭]`,
-  );
-
-  // 表切换行：当前表 ▶ 高亮
-  const tabs = cache.related
-    .map((x, i) =>
-      i === index ? `▶ ${x.table}（${x.rowCount} 行）` : `  ${x.table}（${x.rowCount} 行）`,
-    )
-    .join("  ");
-  lines.push(tabs);
-
-  // 关联路径
-  if (r.joinPath) lines.push(`路径：${r.joinPath}`);
-  lines.push("");
-
-  // 当前表内容
-  if (r.rows.length > 0) {
-    const table = formatTableDisplay(
-      { columns: r.columns, rows: r.rows as any },
-      Math.max(40, width - 4),
-    );
-    lines.push(...table.split("\n"));
-  } else {
-    lines.push("（空结果）");
+  if (!r) {
+    return { title: "", tabs: [], path: "", table: [], empty: true };
   }
 
-  return lines;
+  let tabs: BrowserTab[] = cache.related.map((x, i) => ({
+    label: `${x.table}（${x.rowCount} 行）`,
+    active: i === index,
+  }));
+  if (tabs.length > MAX_TABS) {
+    tabs = tabs.slice(0, MAX_TABS);
+    tabs.push({ label: `… 还有 ${cache.related.length - MAX_TABS} 个`, active: false });
+  }
+
+  const table =
+    r.rows.length > 0
+      ? formatTableDisplay(
+          { columns: r.columns, rows: r.rows as any },
+          Math.max(40, width - 4),
+        ).split("\n")
+      : [];
+
+  return {
+    title: `${cache.database}（${cache.related.length} 个关联表）`,
+    tabs,
+    path: r.joinPath,
+    table,
+    empty: r.rows.length === 0,
+  };
+}
+
+/** 表格总行数超过可视高度时返回滚动位置文本（如 `1-12/30 行`），否则空。 */
+export function formatScrollInfo(scroll: number, visible: number, total: number): string {
+  if (total <= visible) return "";
+  const end = Math.min(scroll + visible, total);
+  return `${scroll + 1}-${end}/${total} 行`;
+}
+
+/** 底栏文本：快捷键提示 + 滚动位置（可测试的纯文本）。 */
+export function formatBrowserFooter(scroll: number, visible: number, total: number): string {
+  const hint = "←→ 切换 · ↑↓ 滚动 · PgUp/PgDn 翻页 · Esc 关闭";
+  const info = formatScrollInfo(scroll, visible, total);
+  return info ? `${hint}    ${info}` : hint;
 }
 
 // ── Overlay 组件 ─────────────────────────────────────
 
-/** 内容区可视高度（标题/tabs/路径/空行占 3-4 行）。 */
+/** 内容区可视高度（边框+标题+切换行+路径+分隔线+底栏约占 6-7 行）。 */
 function viewportHeight(termRows: number): number {
-  return Math.max(5, Math.floor(termRows * 0.7) - 3);
+  return Math.max(5, Math.floor(termRows * 0.7) - 7);
 }
 
 /**
@@ -138,18 +180,62 @@ export async function openRelatedBrowser(
       const container = new Container();
       container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
-      const contentText = new Text("", 1, 0);
-      container.addChild(contentText);
+      const titleText = new Text("", 1, 0);
+      container.addChild(titleText);
+
+      const tabsText = new Text("", 1, 0);
+      container.addChild(tabsText);
+
+      const pathText = new Text("", 1, 0);
+      container.addChild(pathText);
+
+      const separatorText = new Text("", 1, 0);
+      container.addChild(separatorText);
+
+      const tableText = new Text("", 1, 0);
+      container.addChild(tableText);
+
+      const footerText = new Text("", 1, 0);
+      container.addChild(footerText);
 
       container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
 
-      /** 重建内容文本：按当前表与滚动位置切片。 */
+      /** 重建各段文本：按当前表、滚动位置与终端尺寸应用样式。 */
       const build = (): void => {
+        const width = tui.terminal.columns;
+        const content = buildBrowserContent(cache, nav.getIndex(), Math.max(40, width - 4));
         const viewport = viewportHeight(tui.terminal.rows);
-        const lines = formatBrowserContent(cache, nav.getIndex(), tui.terminal.columns);
-        const maxScroll = Math.max(0, lines.length - viewport);
+        const maxScroll = Math.max(0, content.table.length - viewport);
         scroll = Math.min(scroll, maxScroll);
-        contentText.setText(lines.slice(scroll, scroll + viewport).join("\n"));
+
+        titleText.setText(
+          theme.fg("accent", theme.bold("📎 关联表浏览器")) +
+            theme.fg("dim", ` — ${content.title}`),
+        );
+
+        tabsText.setText(
+          content.tabs
+            .map((t) =>
+              t.active
+                ? theme.fg("accent", theme.bold(`▶ ${t.label}`))
+                : theme.fg("dim", `   ${t.label}`),
+            )
+            .join("  "),
+        );
+
+        pathText.setText(content.path ? theme.fg("muted", `路径：${content.path}`) : " ");
+
+        separatorText.setText(theme.fg("dim", "─".repeat(Math.max(10, width - 4))));
+
+        if (content.empty) {
+          tableText.setText(theme.fg("warning", "（空结果）"));
+        } else {
+          tableText.setText(content.table.slice(scroll, scroll + viewport).join("\n"));
+        }
+
+        footerText.setText(
+          theme.fg("dim", formatBrowserFooter(scroll, viewport, content.table.length)),
+        );
       };
 
       build();
@@ -174,9 +260,13 @@ export async function openRelatedBrowser(
           }
 
           // 滚动：需要内容高度计算 maxScroll
+          const content = buildBrowserContent(
+            cache,
+            nav.getIndex(),
+            Math.max(40, tui.terminal.columns - 4),
+          );
           const viewport = viewportHeight(tui.terminal.rows);
-          const lines = formatBrowserContent(cache, nav.getIndex(), tui.terminal.columns);
-          const maxScroll = Math.max(0, lines.length - viewport);
+          const maxScroll = Math.max(0, content.table.length - viewport);
 
           if (matchesKey(data, Key.up)) {
             scroll = Math.max(0, scroll - 1);
