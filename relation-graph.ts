@@ -1,6 +1,6 @@
 import type { Database } from "better-sqlite3";
-import type { ColumnRef, ColumnRelation, RelatedResult } from "./types";
-import { RelationStore, type RelationRow } from "./relation/store";
+import type { ColumnRef, ColumnRelation, RelatedResult, StoredRelation } from "./types";
+import { RelationStore } from "./relation/store";
 
 /**
  * BFS 执行查询所用的接缝。由调用方提供
@@ -38,16 +38,16 @@ export class RelationGraph {
     for (const row of all) {
       const source: ColumnRef = {
         schema: row.schema,
-        table: row.table_name,
-        column: row.column_name,
+        table: row.table,
+        column: row.column,
         condition: row.condition || undefined,
       };
       const target: ColumnRef = {
-        schema: row.ref_schema,
-        table: row.ref_table,
-        column: row.ref_column,
+        schema: row.refSchema,
+        table: row.refTable,
+        column: row.refColumn,
       };
-      this.addToForward(source, target, row.relation_type);
+      this.addToForward(source, target, row.relationType);
     }
   }
 
@@ -72,7 +72,7 @@ export class RelationGraph {
 
   // ── CRUD（经存储）──────────────────────────────────────
 
-  upsert(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): RelationRow {
+  upsert(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): StoredRelation {
     const rel: Omit<ColumnRelation, "id"> = {
       schema: source.schema,
       table: source.table,
@@ -111,17 +111,17 @@ export class RelationGraph {
     return deleted;
   }
 
-  list(schema?: string, table?: string): RelationRow[] {
+  list(schema?: string, table?: string): StoredRelation[] {
     return this.store.list({ schema, table });
   }
 
-  listAll(): RelationRow[] {
+  listAll(): StoredRelation[] {
     return this.store.list();
   }
 
   // ── BFS 遍历 ─────────────────────────────────────────────
 
-  getDirectRelations(schema: string, table: string): Map<ColumnRef, ColumnRef[]> {
+  private getDirectRelations(schema: string, table: string): Map<ColumnRef, ColumnRef[]> {
     const result = new Map<ColumnRef, ColumnRef[]>();
     for (const entry of this.forward.values()) {
       if (entry.source.schema !== schema || entry.source.table !== table) continue;
@@ -246,12 +246,12 @@ export class RelationGraph {
       const exists = allExisting.some(
         (ex) =>
           ex.schema === r.schema &&
-          ex.table_name === r.table &&
-          ex.column_name === r.column &&
+          ex.table === r.table &&
+          ex.column === r.column &&
           ex.condition === (r.condition ?? "") &&
-          ex.ref_schema === r.refSchema &&
-          ex.ref_table === r.refTable &&
-          ex.ref_column === r.refColumn,
+          ex.refSchema === r.refSchema &&
+          ex.refTable === r.refTable &&
+          ex.refColumn === r.refColumn,
       );
       if (!exists) {
         this.store.upsert({

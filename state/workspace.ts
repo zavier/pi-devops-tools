@@ -24,8 +24,7 @@ import {
   type HistoryFilter,
 } from "../history/store";
 import { RelationGraph } from "../relation-graph";
-import type { RelationRow } from "../relation/store";
-import type { RelatedResult, SqlRow } from "../types";
+import type { RelatedResult, SqlRow, StoredRelation, TableSchema } from "../types";
 import { StateStore } from "./state-store";
 
 // ====== 内部类型 ======
@@ -113,12 +112,12 @@ export class DatabaseWorkspaceService {
 
   // ── 构造函数 ────────────────────────────────────────────────
 
-  constructor(state?: StateStore) {
+  constructor(state?: StateStore, manager?: DatabaseConnectionManager) {
     this.store = state ?? new StateStore();
     const result = loadConnectionsConfig(this.store.connectionsFile);
     this.connections = result.connections;
     this.configWarnings = result.warnings;
-    this.manager = new DatabaseConnectionManager(this.connections);
+    this.manager = manager ?? new DatabaseConnectionManager(this.connections);
     this.history = new QueryHistoryStore(this.store.sqlite);
     this.favorites = new FavoriteStore(this.store.sqlite);
     this.relationGraph = new RelationGraph(this.store.sqlite);
@@ -307,7 +306,7 @@ export class DatabaseWorkspaceService {
   async getTableSchema(
     table: string,
     opts?: { connectionId?: string; database?: string },
-  ): Promise<{ columns: SqlRow[]; indexes: SqlRow[] }> {
+  ): Promise<TableSchema> {
     const target = this.resolveTarget(opts);
     return this.manager.getTableSchema(target.connectionId, target.database, table);
   }
@@ -470,7 +469,7 @@ export class DatabaseWorkspaceService {
 
   // ── 关系 ──────────────────────────────────────────────────
 
-  listRelations(table?: string, database?: string): RelationRow[] {
+  listRelations(table?: string, database?: string): StoredRelation[] {
     const schema = database ?? this.current?.database;
     if (!schema) return this.relationGraph.listAll();
     return this.relationGraph.list(schema, table);
@@ -482,7 +481,7 @@ export class DatabaseWorkspaceService {
     refTable: string,
     refColumn: string,
     opts?: { condition?: string; relationType?: string; database?: string },
-  ): RelationRow {
+  ): StoredRelation {
     const schema = opts?.database ?? this.current?.database;
     if (!schema) throw new Error("No database selected");
     return this.relationGraph.upsert(

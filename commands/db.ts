@@ -176,7 +176,7 @@ export async function getCompletions(
 
   const subSubs: Record<string, string[]> = {
     favorite: ["add"],
-    relations: ["add", "remove", "discover", "er-diagram"],
+    relations: ["add", "remove", "discover"],
   };
 
   // 当第一个词与拥有子子命令的子命令完全匹配时，立即显示第二层。
@@ -190,14 +190,12 @@ export async function getCompletions(
 
   // 表名参数（schema、query）——在第一级部分匹配之前触发，
   // 避免精确子命令匹配自引用。
-  const takesTable =
-    sub === "schema" || sub === "query" || (sub === "relations" && parts[1] === "er-diagram");
+  const takesTable = sub === "schema" || sub === "query";
   if (takesTable && ws.isReady) {
     try {
       const tables = await ws.getTables();
-      const tablePartial =
-        sub === "relations" ? (hasTrailingSpace ? "" : (parts[2] ?? "")) : partial;
-      const valuePrefix = sub === "relations" ? "relations er-diagram " : `${sub} `;
+      const tablePartial = partial;
+      const valuePrefix = `${sub} `;
       return tables
         .filter((t) => t.toLowerCase().startsWith(tablePartial.toLowerCase()))
         .map((t) => ({ value: `${valuePrefix}${t}`, label: t }));

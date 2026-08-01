@@ -1,27 +1,26 @@
 /**
  * /db relations —— 表关系管理。
  *
- * 子命令：add、remove、discover（FK 同步）、er-diagram。
+ * 子命令：add、remove、discover（FK 同步）。
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import type { SqlRow } from "../types";
-import type { RelationRow } from "../relation/store";
+import type { StoredRelation } from "../types";
 import { pickTableFuzzy, withLoader } from "./utils";
 
 // ── 列表格式化 ─────────────────────────────────────────────
 
-export function formatRelationsList(rows: RelationRow[]): string {
+export function formatRelationsList(rows: StoredRelation[]): string {
   if (rows.length === 0) return "暂无表关联关系。";
 
   const lines = [`═══ 表关联关系 — ${rows.length} 条 ═══`, ""];
 
   for (const r of rows) {
-    const src = `${r.schema}.${r.table_name}.${r.column_name}`;
-    const ref = `${r.ref_schema}.${r.ref_table}.${r.ref_column}`;
+    const src = `${r.schema}.${r.table}.${r.column}`;
+    const ref = `${r.refSchema}.${r.refTable}.${r.refColumn}`;
     const cond = r.condition ? ` [${r.condition}]` : "";
-    lines.push(`  #${String(r.id).padStart(3)} ${src} → ${ref} (${r.relation_type})${cond}`);
+    lines.push(`  #${String(r.id).padStart(3)} ${src} → ${ref} (${r.relationType})${cond}`);
   }
 
   return lines.join("\n");
@@ -44,8 +43,6 @@ export async function handleRelations(
       return await handleRelationsRemove(ctx, ws, pi);
     case "discover":
       return await handleRelationsDiscover(ctx, ws, pi);
-    case "er-diagram":
-      return await handleRelationsERDiagram(ctx, ws, pi, rest[1]);
     default:
       return await handleRelationsList(ctx, ws, pi);
   }
@@ -66,10 +63,10 @@ async function handleRelationsList(
   }
 
   const labels = rows.map((r) => {
-    const src = `${r.table_name}.${r.column_name}`;
-    const ref = `${r.ref_table}.${r.ref_column}`;
+    const src = `${r.table}.${r.column}`;
+    const ref = `${r.refTable}.${r.refColumn}`;
     const cond = r.condition ? ` [${r.condition}]` : "";
-    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relation_type})${cond}`;
+    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relationType})${cond}`;
   });
 
   const choice = await ctx.ui.select("选择一个关系", labels);
@@ -79,19 +76,19 @@ async function handleRelationsList(
   const entry = rows[idx];
 
   const action = await ctx.ui.select(
-    `#${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+    `#${entry.id} ${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}`,
     ["🗑 删除", "取消"],
   );
 
   if (action === "🗑 删除") {
     const ok = await ctx.ui.confirm(
       "确认删除",
-      `#${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+      `#${entry.id} ${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}`,
     );
     if (ok) {
       ws.removeRelation(entry.id);
       ctx.ui.notify(
-        `已删除关系 #${entry.id} ${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}`,
+        `已删除关系 #${entry.id} ${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}`,
         "info",
       );
     }
@@ -116,7 +113,7 @@ async function handleRelationsAdd(
   let srcColumns: string[] = [];
   try {
     const schemaInfo = await ws.getTableSchema(srcTable);
-    srcColumns = schemaInfo.columns.map((c: SqlRow) => c.COLUMN_NAME as string);
+    srcColumns = schemaInfo.columns.map((c) => c.name);
   } catch {
     ctx.ui.notify(`无法获取 ${srcTable} 的列信息`, "error");
     return;
@@ -131,7 +128,7 @@ async function handleRelationsAdd(
   let refColumns: string[] = [];
   try {
     const schemaInfo = await ws.getTableSchema(refTable);
-    refColumns = schemaInfo.columns.map((c: SqlRow) => c.COLUMN_NAME as string);
+    refColumns = schemaInfo.columns.map((c) => c.name);
   } catch {
     ctx.ui.notify(`无法获取 ${refTable} 的列信息`, "error");
     return;
@@ -176,9 +173,9 @@ async function handleRelationsRemove(
   }
 
   const labels = rows.map((r) => {
-    const src = `${r.table_name}.${r.column_name}`;
-    const ref = `${r.ref_table}.${r.ref_column}`;
-    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relation_type})`;
+    const src = `${r.table}.${r.column}`;
+    const ref = `${r.refTable}.${r.refColumn}`;
+    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relationType})`;
   });
 
   const choice = await ctx.ui.select("选择要删除的关系", labels);
@@ -189,7 +186,7 @@ async function handleRelationsRemove(
 
   const ok = await ctx.ui.confirm(
     "确认删除",
-    `"${entry.table_name}.${entry.column_name} → ${entry.ref_table}.${entry.ref_column}"？`,
+    `"${entry.table}.${entry.column} → ${entry.refTable}.${entry.refColumn}"？`,
   );
 
   if (ok) {
@@ -236,31 +233,25 @@ async function handleRelationsDiscover(
     }
 
     if (tables.length > 0) {
-      const erLines: string[] = ["erDiagram"];
       const MAX_TABLES = 30;
       const sampleTables = tables.slice(0, MAX_TABLES);
 
+      const schemaBlocks: string[] = [];
       for (const t of sampleTables) {
         try {
           const info = await ws.getTableSchema(t);
-          erLines.push(`  "${t}" {`);
-          for (const col of info.columns) {
-            const colName = col.COLUMN_NAME as string;
-            const colType = col.COLUMN_TYPE as string;
-            const comment = col.COLUMN_COMMENT ? ` "${col.COLUMN_COMMENT}"` : "";
-            erLines.push(`    ${colType} ${colName}${comment}`);
-          }
-          erLines.push(`  }`);
+          const cols = info.columns.map((c) => `- ${c.name} (${c.type})`).join("\n");
+          schemaBlocks.push(`### ${t}\n${cols}`);
         } catch {
           // 跳过
         }
       }
 
       if (tables.length > MAX_TABLES) {
-        erLines.push(`  "…还有${tables.length - MAX_TABLES}张表" {}`);
+        schemaBlocks.push(`…还有 ${tables.length - MAX_TABLES} 张表未展示`);
       }
 
-      const erDiagram = erLines.join("\n");
+      const schemaText = schemaBlocks.join("\n\n");
 
       ctx.ui.notify("正在通过 AI 分析表关系…", "info");
 
@@ -268,7 +259,7 @@ async function handleRelationsDiscover(
         {
           customType: "db-relation-discover",
           content: [
-            `请分析以下数据库 ${schema} 的 mermaid ER 图，找出表之间可能的关联关系。`,
+            `请分析以下数据库 ${schema} 的表结构，找出表之间可能的关联关系。`,
             ``,
             `规则：`,
             `1. 根据列名匹配（如 users.id ↔ orders.user_id, dept_no ↔ dept_no）`,
@@ -281,10 +272,8 @@ async function handleRelationsDiscover(
             `仅当 db_tools 也不可用时，再以 JSON 数组格式输出，每个元素：`,
             `{"table":"源表","column":"源列","refTable":"目标表","refColumn":"目标列","relationType":"MANY_TO_ONE","condition":""}`,
             ``,
-            `ER 图：`,
-            "```mermaid",
-            erDiagram,
-            "```",
+            `表结构：`,
+            schemaText,
           ].join("\n"),
           display: true,
         },
@@ -294,89 +283,4 @@ async function handleRelationsDiscover(
   }
 
   ctx.ui.notify(parts.join("\n"), "info");
-}
-
-// ── ER 图 ──────────────────────────────────────────────────
-
-async function handleRelationsERDiagram(
-  ctx: ExtensionCommandContext,
-  ws: DatabaseWorkspaceService,
-  pi: ExtensionAPI,
-  table?: string,
-): Promise<void> {
-  if (!ws.isReady) {
-    ctx.ui.notify("未选择数据库，请先执行 /db switch", "warning");
-    return;
-  }
-
-  if (!table) {
-    const picked = await pickTableFuzzy(ctx, ws, "选择表");
-    if (!picked) return;
-    table = picked;
-  }
-
-  let tableColumns: SqlRow[] = [];
-  try {
-    const info = await ws.getTableSchema(table);
-    tableColumns = info.columns;
-  } catch {
-    ctx.ui.notify(`无法获取 ${table} 的表结构`, "error");
-    return;
-  }
-
-  const relations = ws.listRelations(table);
-  const relatedTableNames = new Set<string>();
-  for (const r of relations) {
-    relatedTableNames.add(r.ref_table);
-    relatedTableNames.add(r.table_name);
-  }
-
-  const allColumns = new Map<string, SqlRow[]>();
-  allColumns.set(table, tableColumns);
-  for (const relatedTable of relatedTableNames) {
-    if (relatedTable === table) continue;
-    try {
-      const info = await ws.getTableSchema(relatedTable);
-      allColumns.set(relatedTable, info.columns);
-    } catch {
-      // 跳过
-    }
-  }
-
-  const lines: string[] = ["erDiagram"];
-
-  for (const r of relations) {
-    const label = r.condition
-      ? `${r.column_name} → ${r.ref_column} [${r.condition}]`
-      : `${r.column_name} → ${r.ref_column}`;
-    lines.push(`  "${r.table_name}" ||--o{ "${r.ref_table}" : "${label}"`);
-  }
-
-  const drawn = new Set<string>();
-  for (const [tbl, cols] of allColumns) {
-    if (drawn.has(tbl)) continue;
-    drawn.add(tbl);
-    lines.push(`  "${tbl}" {`);
-    for (const col of cols) {
-      const colName = col.COLUMN_NAME as string;
-      const colType = col.COLUMN_TYPE as string;
-      const comment = col.COLUMN_COMMENT ? ` "${col.COLUMN_COMMENT}"` : "";
-      lines.push(`    ${colType} ${colName}${comment}`);
-    }
-    lines.push(`  }`);
-  }
-
-  const erDiagram = lines.join("\n");
-
-  // display: true → 在聊天中持久显示；默认 markdown 渲染器
-  // 把 mermaid 源码显示为代码块，LLM 也能读取。
-  // deliverAs "followUp" 在 agent 空闲时立即提交。
-  pi.sendMessage(
-    {
-      customType: "db-er-diagram",
-      content: [`## ER 图 — ${table}`, "", "```mermaid", erDiagram, "```"].join("\n"),
-      display: true,
-    },
-    { deliverAs: "followUp", triggerTurn: false },
-  );
 }

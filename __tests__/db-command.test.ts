@@ -14,7 +14,7 @@ function stubWs(opts: { isReady?: boolean; tables?: string[] } = {}) {
 describe("getCompletions (/db 参数补全)", () => {
   it("expands second-level subcommands for 'relations'", async () => {
     const result = await getCompletions("relations", stubWs());
-    expect(result?.map((c) => c.label).sort()).toEqual(["add", "discover", "er-diagram", "remove"]);
+    expect(result?.map((c) => c.label).sort()).toEqual(["add", "discover", "remove"]);
     expect(result?.[0].value).toBe("relations add ");
   });
 
@@ -25,7 +25,7 @@ describe("getCompletions (/db 参数补全)", () => {
 
   it("handles trailing space after 'relations' (Tab-completed state)", async () => {
     const result = await getCompletions("relations ", stubWs());
-    expect(result?.length).toBe(4);
+    expect(result?.length).toBe(3);
   });
 
   it("filters sub-subcommands by partial input", async () => {
@@ -55,12 +55,6 @@ describe("getCompletions (/db 参数补全)", () => {
     const ws = stubWs({ tables: ["T_ORDERS", "t_customers"] });
     const result = await getCompletions("query t_", ws);
     expect(result?.map((c) => c.label).sort()).toEqual(["T_ORDERS", "t_customers"]);
-  });
-
-  it("completes table names for 'relations er-diagram'", async () => {
-    const ws = stubWs({ tables: ["t_orders"] });
-    const result = await getCompletions("relations er-diagram ", ws);
-    expect(result?.map((c) => c.value)).toEqual(["relations er-diagram t_orders"]);
   });
 
   it("falls back to subcommand prefix matching for partial first word", async () => {

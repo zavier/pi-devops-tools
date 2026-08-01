@@ -37,13 +37,16 @@ describe("RelationGraph", () => {
 
     graph.upsert(src, tgt, "MANY_TO_ONE");
 
-    // 前向
-    const forward = graph.getDirectRelations("db1", "t_order");
-    expect(forward.size).toBe(1);
+    // 前向（源 schema 内检索）
+    const forward = graph.list("db1", "t_order");
+    expect(forward.length).toBe(1);
 
-    // 反向（双向）
-    const reverse = graph.getDirectRelations("db2", "t_user");
-    expect(reverse.size).toBe(1);
+    // 反向——list 的 involving 过滤按源 schema 匹配，跨 schema 反向
+    // 查不到（row.schema 是源表 db1）；反向图遍历由 bfsQuery 测试覆盖，
+    // 这里用 listAll 验证目标方向已记录。
+    const all = graph.listAll();
+    expect(all.length).toBe(1);
+    expect(all[0].refSchema).toBe("db2");
   });
 
   it("removes relations by column match", () => {
@@ -56,8 +59,8 @@ describe("RelationGraph", () => {
     const removed = graph.remove(src, tgt);
     expect(removed).toBe(true);
 
-    const forward = graph.getDirectRelations("db1", "t_order");
-    expect(forward.size).toBe(0);
+    const forward = graph.list("db1", "t_order");
+    expect(forward.length).toBe(0);
   });
 
   it("remove returns false for non-existent relation", () => {
@@ -94,7 +97,7 @@ describe("RelationGraph", () => {
     // 只有一条关系，更新为 MANY_TO_ONE
     const relations = graph.list("a", "t1");
     expect(relations.length).toBe(1);
-    expect(relations[0].relation_type).toBe("MANY_TO_ONE");
+    expect(relations[0].relationType).toBe("MANY_TO_ONE");
   });
 
   it("upsert with different conditions creates separate rows", () => {
@@ -137,7 +140,7 @@ describe("RelationGraph", () => {
 
     // 注册时不校验目标表/列是否存在——错误引用要到 BFS 时才暴露。
     const row = graph.upsert(src, tgt, "MANY_TO_ONE");
-    expect(row.ref_table).toBe("t_nope");
+    expect(row.refTable).toBe("t_nope");
     expect(graph.list("a").length).toBe(1);
   });
 
@@ -172,7 +175,7 @@ describe("RelationGraph", () => {
       void _rt;
       // 运行时信息可能不带 relationType(如 FK 发现路径)——类型断言模拟
       graph.mergeForeignKeys([withoutType as ColumnRelation]);
-      expect(graph.list("a")[0].relation_type).toBe("MANY_TO_ONE");
+      expect(graph.list("a")[0].relationType).toBe("MANY_TO_ONE");
     });
   });
 });

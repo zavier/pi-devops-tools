@@ -4,21 +4,66 @@
  * 管理按连接 ID 键控的 mysql2 连接池，是唯一的查询执行点：
  * 每条查询都经过只读守卫和 LIMIT 策略（见 sql-policy.ts），并在检出的
  * 专用连接上执行，这样 USE 与查询不会散落在连接池的不同连接上。
+ *
+ * 驱动 seam：构造函数接受可选的 pool factory（默认 mysql2），测试注入
+ * fake pool 即可覆盖 USE→query 检出编排与 LIMIT 策略解析
+ * （见 __tests__/db-manager.test.ts）。
  */
 
-import mysql, { type Pool, type RowDataPacket, type ResultSetHeader } from "mysql2/promise";
+import mysql, { type RowDataPacket, type ResultSetHeader } from "mysql2/promise";
 import type { ResolvedConnectionConfig } from "./db-config";
 import { prepareReadOnlyQuery, DEFAULT_QUERY_LIMIT } from "./sql-policy";
+import type { SchemaIndex, SqlRow, TableSchema } from "../types";
+
+// ====== 驱动 seam ======
+
+/** 检出连接的最小接口——mysql2 PoolConnection 结构兼容。 */
+export interface ConnectionLike {
+  query<T = unknown[]>(
+    sql: string | { sql: string; timeout?: number },
+    params?: unknown[],
+  ): Promise<[T, unknown]>;
+  release(): void;
+}
+
+/** 驱动池的最小接口——mysql2 Pool 结构兼容，测试用 fake pool 只实现这些。 */
+export interface PoolLike {
+  query<T = unknown[]>(
+    sql: string | { sql: string; timeout?: number },
+    params?: unknown[],
+  ): Promise<[T, unknown]>;
+  getConnection(): Promise<ConnectionLike>;
+  end(): Promise<void>;
+}
+
+/** pool factory——驱动 seam，测试注入 fake。 */
+export type PoolFactory = (cfg: ResolvedConnectionConfig) => PoolLike;
+
+const DEFAULT_QUERY_TIMEOUT = 30000;
+
+/** 默认驱动适配：mysql2 连接池。池不指定默认数据库——USE 动态切换。 */
+const defaultPoolFactory: PoolFactory = (cfg) =>
+  mysql.createPool({
+    host: cfg.host,
+    port: cfg.port,
+    user: cfg.username,
+    password: cfg.password,
+    connectTimeout: 10000,
+    waitForConnections: true,
+    connectionLimit: 3,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 60000,
+  }) as unknown as PoolLike;
+
+// ====== 选项与输出 ======
 
 export interface QueryOptions {
-  limit?: number; // row cap for SELECTs without trailing LIMIT (default: connection's queryLimit)
-  timeout?: number; // per-query timeout in ms (default: 30000)
   params?: unknown[]; // bound values for ? placeholders
 }
 
 export interface QueryOutput {
   columns: string[];
-  rows: RowDataPacket[];
+  rows: SqlRow[];
   elapsed: string;
   sql: string; // final SQL after policy (LIMIT may have been appended)
 }
@@ -29,29 +74,28 @@ export interface MutationOutput {
   sql: string;
 }
 
+// ====== 管理器 ======
+
 export class DatabaseConnectionManager {
-  private pools = new Map<string, Pool>();
+  private pools = new Map<string, PoolLike>();
   private configMap: Map<string, ResolvedConnectionConfig>;
+  private createPool: PoolFactory;
 
-  constructor(connections: ResolvedConnectionConfig[]) {
+  constructor(
+    connections: ResolvedConnectionConfig[],
+    createPool: PoolFactory = defaultPoolFactory,
+  ) {
     this.configMap = new Map(connections.map((c) => [c.id, c]));
-  }
-
-  /** 获取某连接 ID 的配置。 */
-  getConfig(id: string): ResolvedConnectionConfig | undefined {
-    return this.configMap.get(id);
+    this.createPool = createPool;
   }
 
   /** 列出所有已配置的连接 ID。 */
-  getConnectionIds(): string[] {
+  private getConnectionIds(): string[] {
     return [...this.configMap.keys()];
   }
 
-  /**
-   * 获取（或创建）某连接 ID 的 mysql2 连接池。
-   * 连接池连接时不指定默认数据库——工作空间通过 USE 动态切换数据库。
-   */
-  getPool(connectionId: string): Pool {
+  /** 获取（或创建）某连接 ID 的驱动池。 */
+  private getPool(connectionId: string): PoolLike {
     const existing = this.pools.get(connectionId);
     if (existing) return existing;
 
@@ -62,18 +106,7 @@ export class DatabaseConnectionManager {
       );
     }
 
-    const pool = mysql.createPool({
-      host: cfg.host,
-      port: cfg.port,
-      user: cfg.username,
-      password: cfg.password,
-      connectTimeout: 10000,
-      waitForConnections: true,
-      connectionLimit: 3,
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 60000,
-    });
-
+    const pool = this.createPool(cfg);
     this.pools.set(connectionId, pool);
     return pool;
   }
@@ -107,7 +140,7 @@ export class DatabaseConnectionManager {
     connectionId: string,
     database: string,
     table: string,
-  ): Promise<{ columns: RowDataPacket[]; indexes: RowDataPacket[] }> {
+  ): Promise<TableSchema> {
     const pool = this.getPool(connectionId);
 
     const [columns] = await pool.query<RowDataPacket[]>(
@@ -126,7 +159,29 @@ export class DatabaseConnectionManager {
       [database, table],
     );
 
-    return { columns, indexes };
+    return {
+      columns: columns.map((c) => ({
+        name: c.COLUMN_NAME as string,
+        type: c.COLUMN_TYPE as string,
+        nullable: c.IS_NULLABLE === "YES",
+        key: (c.COLUMN_KEY as string) ?? "",
+        default: (c.COLUMN_DEFAULT as string | null) ?? null,
+        extra: (c.EXTRA as string) ?? "",
+        comment: (c.COLUMN_COMMENT as string) ?? "",
+      })),
+      indexes: this.aggregateIndexes(indexes),
+    };
+  }
+
+  /** 将 information_schema.STATISTICS 行按索引名聚合成 SchemaIndex[]。 */
+  private aggregateIndexes(rows: RowDataPacket[]): SchemaIndex[] {
+    const map = new Map<string, { cols: string[]; unique: boolean }>();
+    for (const idx of rows) {
+      const name = idx.INDEX_NAME as string;
+      if (!map.has(name)) map.set(name, { cols: [], unique: idx.NON_UNIQUE === 0 });
+      map.get(name)!.cols.push(idx.COLUMN_NAME as string);
+    }
+    return [...map.entries()].map(([name, { cols, unique }]) => ({ name, columns: cols, unique }));
   }
 
   /**
@@ -143,7 +198,7 @@ export class DatabaseConnectionManager {
   ): Promise<QueryOutput> {
     const pool = this.getPool(connectionId);
     const cfg = this.configMap.get(connectionId)!;
-    const finalSql = prepareReadOnlyQuery(sql, opts.limit ?? cfg.queryLimit ?? DEFAULT_QUERY_LIMIT);
+    const finalSql = prepareReadOnlyQuery(sql, cfg.queryLimit ?? DEFAULT_QUERY_LIMIT);
 
     const conn = await pool.getConnection();
     try {
@@ -151,14 +206,14 @@ export class DatabaseConnectionManager {
 
       const start = Date.now();
       const [rows] = await conn.query<RowDataPacket[]>(
-        { sql: finalSql, timeout: opts.timeout ?? 30000 },
+        { sql: finalSql, timeout: DEFAULT_QUERY_TIMEOUT },
         opts.params,
       );
       const elapsed = `${((Date.now() - start) / 1000).toFixed(3)}s`;
 
       const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
-      return { columns, rows, elapsed, sql: finalSql };
+      return { columns, rows: rows as SqlRow[], elapsed, sql: finalSql };
     } finally {
       conn.release();
     }
@@ -208,14 +263,13 @@ export class DatabaseConnectionManager {
     connectionId: string,
     database: string,
     sql: string,
-    opts: { timeout?: number } = {},
   ): Promise<MutationOutput> {
     const pool = this.getPool(connectionId);
     const conn = await pool.getConnection();
     try {
       await conn.query(`USE \`${database}\``);
       const start = Date.now();
-      const [result] = await conn.query<ResultSetHeader>({ sql, timeout: opts.timeout ?? 30000 });
+      const [result] = await conn.query<ResultSetHeader>({ sql, timeout: DEFAULT_QUERY_TIMEOUT });
       const elapsed = `${((Date.now() - start) / 1000).toFixed(3)}s`;
       return {
         affectedRows: result.affectedRows,

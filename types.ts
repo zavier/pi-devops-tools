@@ -15,7 +15,9 @@ export interface ColumnRef {
   condition?: string;
 }
 
-export interface ColumnRelation {
+/** 存储中的一条表关系——camelCase 唯一形状（snake_case 只在 SQLite 边界映射）。 */
+export interface StoredRelation {
+  id: number;
   schema: string;
   table: string;
   column: string;
@@ -24,7 +26,12 @@ export interface ColumnRelation {
   refTable: string;
   refColumn: string;
   relationType: string;
+  createdTime: string;
+  updatedTime: string;
 }
+
+/** 关系输入/领域形状——StoredRelation 去掉持久化字段。 */
+export type ColumnRelation = Omit<StoredRelation, "id" | "createdTime" | "updatedTime">;
 
 // ====== 查询结果类型 ======
 
@@ -36,4 +43,30 @@ export interface RelatedResult {
   rowCount: number;
   joinPath: string;
   elapsed: string;
+}
+
+// ====== schema 类型 ======
+
+/** information_schema 收窄后的列定义——driver 边界一次映射。 */
+export interface SchemaColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  key: string;
+  default: string | null;
+  extra: string;
+  comment: string;
+}
+
+/** 收窄并聚合后的索引定义（按 INDEX_NAME 分组）。 */
+export interface SchemaIndex {
+  name: string;
+  columns: string[];
+  unique: boolean;
+}
+
+/** getTableSchema 的返回类型。 */
+export interface TableSchema {
+  columns: SchemaColumn[];
+  indexes: SchemaIndex[];
 }
