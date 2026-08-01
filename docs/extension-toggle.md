@@ -1,6 +1,6 @@
 # 扩展开关设计：Extension Toggle
 
-> 状态：设计稿（待评审）
+> 状态：已实施（`/db on|off` 位于 `commands/db.ts`）
 > 目标版本：0.9.0
 
 ## 1. 背景与目标
