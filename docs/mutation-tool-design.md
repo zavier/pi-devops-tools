@@ -144,7 +144,6 @@ async executeMutation(
   connectionId: string,
   database: string,
   sql: string,
-  opts: { timeout?: number } = {},
 ): Promise<MutationOutput> {
   const pool = this.getPool(connectionId);
   const conn = await pool.getConnection();
@@ -152,7 +151,7 @@ async executeMutation(
     await conn.query(`USE \`${database}\``);
     const start = Date.now();
     const [result] = await conn.query(
-      { sql, timeout: opts.timeout ?? 30000 },
+      { sql, timeout: 30000 },
     ) as [mysql.ResultSetHeader, any];
     const elapsed = `${((Date.now() - start) / 1000).toFixed(3)}s`;
     return {

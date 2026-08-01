@@ -90,7 +90,7 @@ class DatabaseWorkspaceService {
   saveFavorite(name, sql, desc): FavoriteEntry;
 
   // ── 关系图 ──
-  upsertRelation(srcTable, srcCol, refTable, refCol, opts?): RelationRow;
+  upsertRelation(srcTable, srcCol, refTable, refCol, opts?): StoredRelation;
   removeRelationByColumns(database, srcTable, srcCol, refTable, refCol): boolean;
   async discoverForeignKeys(): Promise<number>;
 }
@@ -114,7 +114,7 @@ executeQuery(connId, db, sql)
 
 **为什么需要专用连接**：MySQL 的 `USE database` 是连接级状态。如果使用连接池的 `pool.query()`，两次调用可能落在不同连接上，导致 `USE` 和 `query` 分离。检出专用连接并在 finally 中归还，保证了原子性。
 
-**延迟连接**：MySQL 连接池在第一次使用时才创建（`getPool()` 懒初始化），按 connection ID 缓存。`destroy()` 遍历关闭所有池。
+**延迟连接**：MySQL 连接池在第一次使用时才懒创建，按 connection ID 缓存。`destroy()` 遍历关闭所有池。
 
 ### 3.3 SQL 安全策略 — sql-policy.ts
 
