@@ -21,14 +21,15 @@ import {
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import { formatTableCompact } from "../formatting/result-table";
+import type { QueryResultDoc } from "../formatting/result-document";
+import { renderQueryDocument } from "../formatting/result-document";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
 import { MutationValidationError } from "../connection/sql-policy";
 import { showMutationConfirm } from "../commands/mutate-confirm";
 import { LOADER_TOOL_NAME, LAZY_TOOL_INFO, matchDbTools } from "./db-tool-catalog";
 export { applyInitialToolSet } from "./db-tool-catalog";
 
-function truncate(text: string, hint = "Narrow the query or add a LIMIT."): string {
+function truncate(text: string, hint = "查询范围过大，请缩小查询或添加 LIMIT。"): string {
   const t = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
   if (!t.truncated) return t.content;
   return (
@@ -90,8 +91,8 @@ export function registerDbTools(
             {
               type: "text",
               text:
-                'No matching database tools. Try: "discover" (connections/databases), ' +
-                '"relations" (list/register table relationships).',
+                '没有匹配的数据库工具。可尝试："discover"（连接/数据库）、' +
+                '"relations"（列出/注册表关联）。',
             },
           ],
           details: { matches: [] as string[], added: [] as string[] },
@@ -109,8 +110,8 @@ export function registerDbTools(
       const lines = matches.map((name) => `- ${name}: ${LAZY_TOOL_INFO[name]}`);
       const header =
         added.length > 0
-          ? `Enabled ${added.length} tool(s), available from the next turn:\n`
-          : "Already active:\n";
+          ? `已启用 ${added.length} 个工具，下一轮对话可用：\n`
+          : "已处于活动状态：\n";
       return {
         content: [{ type: "text", text: header + lines.join("\n") }],
         details: { matches, added },
@@ -151,14 +152,18 @@ export function registerDbTools(
       } catch {
         /* 非致命 */
       }
-      const text = [
-        `Connection: ${result.connectionId}`,
-        `Database: ${result.database}`,
-        `SQL: ${result.sql}`,
-        `Rows: ${result.rows.length} (${result.elapsed})`,
-        "",
-        formatTableCompact({ columns: result.columns, rows: result.rows }),
-      ].join("\n");
+      const doc: QueryResultDoc = {
+        connectionId: result.connectionId,
+        database: result.database,
+        sql: result.sql,
+        rowCount: result.rows.length,
+        elapsed: result.elapsed,
+        columns: result.columns,
+        rows: result.rows,
+      };
+      const text = renderQueryDocument(doc, { audience: "llm-zh" })
+        .map((l) => l.text)
+        .join("\n");
       return {
         content: [{ type: "text", text: truncate(text) }],
         details: {
@@ -194,17 +199,17 @@ export function registerDbTools(
       const ws = getWorkspace();
       const conns = ws.listConnections();
       const lines = [
-        `Connections (${conns.length}):`,
+        `连接（${conns.length} 个）：`,
         ...conns.map(
           (c) =>
-            `- ${c.id} (env: ${c.environment}${c.defaultDatabase ? `, default: ${c.defaultDatabase}` : ""})`,
+            `- ${c.id}（环境：${c.environment}${c.defaultDatabase ? `，默认库：${c.defaultDatabase}` : ""}）`,
         ),
       ];
 
       const targetId = params.connection ?? ws.current?.connectionId;
       if (targetId) {
         const dbs = await ws.getDatabases(targetId);
-        lines.push("", `Databases on ${targetId} (${dbs.length}):`, ...dbs);
+        lines.push("", `${targetId} 上的数据库（${dbs.length} 个）：`, ...dbs);
       }
 
       return {
@@ -253,7 +258,7 @@ export function registerDbTools(
               type: "text",
               text: truncate(
                 formatSchemaMarkdown(params.table, target.database, columns, indexes),
-                "Table has too many columns to display. Use db_query to select specific columns.",
+                "表字段过多无法完整显示，可用 db_query 选择具体列。",
               ),
             },
           ],
@@ -262,15 +267,12 @@ export function registerDbTools(
       }
       const tables = await ws.getTables(target);
       details.tables = tables;
-      const tableList = `Tables in ${target.connectionId}/${target.database} (${tables.length}):\n${tables.join("\n")}`;
+      const tableList = `连接 ${target.connectionId}/${target.database} 中的表（${tables.length} 个）：\n${tables.join("\n")}`;
       return {
         content: [
           {
             type: "text",
-            text: truncate(
-              tableList,
-              "Too many tables to display. Inspect a specific table with table= instead.",
-            ),
+            text: truncate(tableList, "表数量过多，可用 table= 参数查看具体表。"),
           },
         ],
         details,
@@ -299,17 +301,17 @@ export function registerDbTools(
       const lines = rows.map(
         (r) =>
           `#${r.id} ${r.table_name}.${r.column_name} → ${r.ref_table}.${r.ref_column}` +
-          ` (${r.relation_type}${r.condition ? `, condition: ${r.condition}` : ""})`,
+          `（${r.relation_type}${r.condition ? `，条件：${r.condition}` : ""}）`,
       );
-      const scope = params.database ?? ws.current?.database ?? "all databases";
+      const scope = params.database ?? ws.current?.database ?? "全部数据库";
       return {
         content: [
           {
             type: "text",
             text:
               lines.length > 0
-                ? `Relations in ${scope} (${lines.length}):\n${lines.join("\n")}`
-                : `No relations registered for ${scope}.`,
+                ? `${scope} 中的关联（${lines.length} 个）：\n${lines.join("\n")}`
+                : `${scope} 中未注册关联。`,
           },
         ],
         details: { database: scope, relations: rows },
@@ -352,7 +354,7 @@ export function registerDbTools(
         // 用户拒绝是正常结果——非 isError，回显被拒语句。
         if (outcome.status === "rejected") {
           return {
-            content: [{ type: "text", text: `Mutation rejected by user: ${outcome.sql}` }],
+            content: [{ type: "text", text: `用户已拒绝变更：${outcome.sql}` }],
             details: { rejected: true, sql: outcome.sql },
           };
         }
@@ -362,11 +364,11 @@ export function registerDbTools(
             {
               type: "text",
               text: [
-                `✅ Mutation executed successfully.`,
-                `Connection: ${outcome.connectionId}`,
-                `Database: ${outcome.database}`,
-                `SQL: ${outcome.sql}`,
-                `Affected rows: ${outcome.affectedRows} (${outcome.elapsed})`,
+                `✅ 变更执行成功。`,
+                `连接：${outcome.connectionId}`,
+                `数据库：${outcome.database}`,
+                `SQL：${outcome.sql}`,
+                `影响行数：${outcome.affectedRows}（${outcome.elapsed}）`,
               ].join("\n"),
             },
           ],
@@ -380,7 +382,7 @@ export function registerDbTools(
         };
       } catch (err: any) {
         // 校验拒绝（DDL 等）与执行失败都从 facade 抛出，用错误类型区分措辞。
-        const prefix = err instanceof MutationValidationError ? "SQL rejected" : "Mutation failed";
+        const prefix = err instanceof MutationValidationError ? "SQL 被拒绝" : "变更失败";
         return {
           isError: true,
           content: [{ type: "text", text: `${prefix}: ${err.message}` }],
@@ -428,9 +430,7 @@ export function registerDbTools(
       const ws = getWorkspace();
       const schema = params.database ?? ws.current?.database;
       if (!schema) {
-        throw new Error(
-          "No database selected. Run /db switch first, or pass connection + database explicitly.",
-        );
+        throw new Error("未选择数据库。请先执行 /db switch，或显式传入 connection + database。");
       }
 
       if (params.action === "register") {
@@ -450,8 +450,8 @@ export function registerDbTools(
             {
               type: "text",
               text:
-                `Relation #${row.id}: ${params.table}.${params.column} → ` +
-                `${params.refTable}.${params.refColumn} (${row.relation_type})`,
+                `关联 #${row.id}：${params.table}.${params.column} → ` +
+                `${params.refTable}.${params.refColumn}（${row.relation_type}）`,
             },
           ],
           details: { relationId: row.id },
@@ -472,8 +472,8 @@ export function registerDbTools(
           {
             type: "text",
             text: deleted
-              ? `Deleted relation: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`
-              : `No matching relation found: ${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`,
+              ? `已删除关联：${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`
+              : `未找到匹配关联：${params.table}.${params.column} → ${params.refTable}.${params.refColumn}`,
           },
         ],
         details: { deleted },

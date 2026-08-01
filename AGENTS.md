@@ -27,7 +27,7 @@ npm run fmt:check   # oxfmt --check          —— 必须通过（与 fmt 重�
 
 - **代码注释（`//` 与 `/* */`）一律使用中文**（代码标识符、类型名保持英文）。
 - **git message 使用中文**（conventional commits 格式，见下）。subject 用中文描述变更；body 用中文说明做了什么、为什么。
-- **发给 LLM 的运行时字符串保持英文**：工具 description / promptSnippet / promptGuidelines 是模型提示语，不要翻译（保持稳定、可预期）。
+- **模型提示语保持英文**：工具 description / promptSnippet / promptGuidelines 是模型提示语，不要翻译（保持稳定、可预期）。工具执行输出与 TUI 文案使用中文（与 /db query 的 LLM 消息保持一致）。
 - 用户可见的 TUI 文案（`ctx.ui.notify` 等）使用中文（现状如此，保持一致）。
 
 ## 分支、提交、PR
