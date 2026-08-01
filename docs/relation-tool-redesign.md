@@ -190,7 +190,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique
 `RelationStore.insert()` 改为 `RelationStore.upsert()`：
 
 ```typescript
-upsert(rel: Omit<ColumnRelation, "id">): RelationRow {
+upsert(rel: Omit<ColumnRelation, "id">): StoredRelation {
   const stmt = this.db.prepare(`
     INSERT INTO table_relations
       (schema, table_name, column_name, condition, ref_schema, ref_table, ref_column, relation_type)
@@ -219,7 +219,7 @@ upsert(rel: Omit<ColumnRelation, "id">): RelationRow {
 findByColumns(
   schema: string, table: string, column: string, condition: string,
   refSchema: string, refTable: string, refColumn: string,
-): RelationRow | undefined {
+): StoredRelation | undefined {
   const row = this.db.prepare(`
     SELECT * FROM table_relations
     WHERE schema = ? AND table_name = ? AND column_name = ? AND condition = ?
@@ -254,7 +254,7 @@ deleteByColumns(
 ### 5.1 `register` → `upsert`
 
 ```typescript
-upsert(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): RelationRow {
+upsert(source: ColumnRef, target: ColumnRef, relationType = "MANY_TO_ONE"): StoredRelation {
   const rel: Omit<ColumnRelation, "id"> = {
     schema: source.schema,
     table: source.table,
@@ -307,7 +307,7 @@ upsertRelation(
   refTable: string,
   refColumn: string,
   opts?: { condition?: string; relationType?: string; database?: string },
-): RelationRow {
+): StoredRelation {
   const schema = opts?.database ?? this.current?.database;
   if (!schema) throw new Error("No database selected");
   return this.relationGraph.upsert(
@@ -359,7 +359,7 @@ removeRelationByColumns(
 ### 7.3 其余子命令不变
 
 `/db relations remove` 仍通过 id 选择 → `ws.removeRelation(id)`。
-`/db relations er-diagram` 不变。
+`/db relations er-diagram` 已移除（候选 5：pi 不渲染 mermaid 图，命令删除；discover 的 AI 消息改为表结构文本）。
 
 ---
 

@@ -98,7 +98,7 @@ export interface BrowserTab {
 }
 
 /** 浏览器内容的分段结构——组件渲染时对每段套不同样式。 */
-export interface BrowserContent {
+interface BrowserContent {
   /** 副标题（数据库名 + 关联表数量），如 `shop（2 个关联表）`。 */
   title: string;
   /** 表切换行（当前表 active=true）。 */

@@ -5,86 +5,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { withLoader } from "./utils";
-import { sendActiveDb, sendUnconfiguredHint } from "./llm-context";
+import { sendActiveDb } from "./llm-context";
 
 export const STATUS_KEY = "db-workspace";
-
-export async function showWorkspacePanel(
-  ctx: ExtensionCommandContext,
-  ws: DatabaseWorkspaceService,
-  pi?: ExtensionAPI,
-): Promise<void> {
-  const lines: string[] = [];
-
-  lines.push("═══ 数据库工作区 ═══");
-  lines.push("");
-
-  if (ws.current) {
-    const conn = ws.getCurrentConnection();
-    lines.push(`环境   ：${ws.current.environment}`);
-    lines.push(`连接   ：${ws.current.connectionId}（${conn?.host ?? "?"}）`);
-    lines.push(`数据库 ：${ws.current.database}`);
-  } else {
-    lines.push("未选择数据库，使用 /db switch 连接");
-    lines.push("");
-    if (ws.isConfigured) {
-      lines.push(`可用环境：${ws.getEnvironments().join(", ")}`);
-    } else {
-      lines.push("⚠️  尚未配置数据库连接");
-      lines.push("");
-      lines.push(`配置文件：${ws.configPath}`);
-      lines.push("");
-      lines.push("配置示例：");
-      lines.push("  connections:");
-      lines.push("    my-db:");
-      lines.push("      environment: prod");
-      lines.push("      type: mysql");
-      lines.push("      host: 127.0.0.1");
-      lines.push("      port: 3306");
-      lines.push("      username: root");
-      lines.push("      password: ${DB_PASSWORD}");
-    }
-  }
-
-  // 显示配置警告（如未解析的 env 变量）
-  const warnings = ws.getConfigWarnings();
-  if (warnings.length > 0) {
-    lines.push("");
-    for (const w of warnings) {
-      lines.push(`⚠ ${w}`);
-    }
-  }
-
-  lines.push("");
-  lines.push("命令：");
-  lines.push("  /db switch          选择环境和数据库");
-  lines.push("  /db add             添加新连接");
-  lines.push("  /db tables          列出所有表");
-  lines.push("  /db schema <表名>   查看表结构");
-  lines.push("  /db query [表名]    选表 → WHERE → 查询");
-  lines.push("  /db history         查询历史");
-  lines.push("  /db favorite        收藏的查询模板");
-  lines.push("  /db relations       表关联关系管理");
-
-  // 用户可见的面板（纯文本渲染器）。
-  if (pi) {
-    pi.sendMessage(
-      {
-        customType: "db-workspace-panel",
-        content: lines.join("\n"),
-        display: true,
-      },
-      { deliverAs: "followUp", triggerTurn: false },
-    );
-  }
-
-  // 未配置连接时给 LLM 的静默提示。
-  // display: false 让它不进聊天；triggerTurn 让 AI
-  // 主动提议帮助建立第一个连接。
-  if (!ws.isConfigured && pi) {
-    sendUnconfiguredHint(pi, ws.configPath);
-  }
-}
 
 export async function handleSwitch(
   ctx: ExtensionCommandContext,

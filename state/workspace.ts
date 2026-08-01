@@ -36,7 +36,7 @@ interface WorkspaceState {
 }
 
 /** 调用的有效目标：默认工作空间选择，可逐调用覆盖。 */
-export interface QueryTarget {
+interface QueryTarget {
   connectionId: string;
   database: string;
 }
@@ -51,7 +51,7 @@ export interface MutationApprovalRequest {
 }
 
 /** 写操作结果：用户拒绝是正常结果（rejected），非异常。 */
-export type MutationOutcome =
+type MutationOutcome =
   | { status: "rejected"; sql: string }
   | {
       status: "executed";
@@ -144,7 +144,6 @@ export class DatabaseWorkspaceService {
    * 文件或父目录不存在时自动创建。
    */
   createConnection(
-    env: string,
     name: string,
     cfg: {
       environment: string;

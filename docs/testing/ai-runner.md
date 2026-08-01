@@ -114,7 +114,6 @@ Step 4  收尾(人验证完成后): H3 重建或 init-env.mjs --cleanup 销毁, 
 | G8  | G7 中选择"📎 一起查询关联表"                | 主表 + 关联 customers/coupons/order_items/products 区块, 含关联路径 | 关联区块出现 |
 | G9  | /db query t_customers → WHERE id=1 → 关联表 | 关联 profiles(1)/orders(3)/coupons(1)                               | 各关联行数   |
 | G10 | /db relations discover                      | 0 条(无系统外键)                                                    | 提示 0       |
-| G11 | /db relations er-diagram                    | 已注册关系图                                                        | 图示渲染     |
 | G12 | /db favorite add(任一 SQL) → /db favorite   | 收藏成功并按库分组列出                                              | 列表出现     |
 | G13 | /db history / /db history 订单              | 最近 20 条 / 关键词过滤                                             | 列表过滤     |
 | G14 | /db off → /db on                            | 状态栏移除/恢复; 工具报错提示未启用                                 | 状态栏变化   |

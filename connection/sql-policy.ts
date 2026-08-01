@@ -14,7 +14,7 @@ export const MUTATION_SQL_RE = /^(INSERT|UPDATE|DELETE|REPLACE)\b/i;
 
 const WHERE_RE = /\bWHERE\b/i;
 
-export interface MutationValidation {
+interface MutationValidation {
   sql: string;
   operation: "INSERT" | "UPDATE" | "DELETE" | "REPLACE";
   hasWhere: boolean;

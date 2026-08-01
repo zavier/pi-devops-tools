@@ -47,7 +47,7 @@ export function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
 // ── 关联结果转换 ──────────────────────────────────
 
 /** 将 RelatedResult 转为 TUI entry 可用的 RelatedTuiData（行值清洗为 string|null）。 */
-export function toRelatedTuiData(related: RelatedResult[]): RelatedTuiData[] {
+function toRelatedTuiData(related: RelatedResult[]): RelatedTuiData[] {
   return related.map((r) => ({
     schema: r.schema,
     table: r.table,
@@ -62,7 +62,7 @@ export function toRelatedTuiData(related: RelatedResult[]): RelatedTuiData[] {
 // ── 展示（双受众：TUI 条目 + LLM 上下文）──────────
 
 async function displayQueryResult(
-  ctx: ExtensionCommandContext,
+  _ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
   pi: ExtensionAPI,
   result: ExecutedResult,
