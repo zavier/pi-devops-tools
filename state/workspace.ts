@@ -112,12 +112,12 @@ export class DatabaseWorkspaceService {
 
   // ── 构造函数 ────────────────────────────────────────────────
 
-  constructor(state?: StateStore) {
+  constructor(state?: StateStore, manager?: DatabaseConnectionManager) {
     this.store = state ?? new StateStore();
     const result = loadConnectionsConfig(this.store.connectionsFile);
     this.connections = result.connections;
     this.configWarnings = result.warnings;
-    this.manager = new DatabaseConnectionManager(this.connections);
+    this.manager = manager ?? new DatabaseConnectionManager(this.connections);
     this.history = new QueryHistoryStore(this.store.sqlite);
     this.favorites = new FavoriteStore(this.store.sqlite);
     this.relationGraph = new RelationGraph(this.store.sqlite);

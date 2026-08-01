@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { StateStore } from "../state/state-store";
 import { DatabaseWorkspaceService, type MutationApprovalRequest } from "../state/workspace";
 import { MutationValidationError } from "../connection/sql-policy";
+import { DatabaseConnectionManager, type PoolLike } from "../connection/db-manager";
+import type { ResolvedConnectionConfig } from "../connection/db-config";
 
 const CONNECTIONS_YAML = `connections:
   main:
@@ -262,11 +264,11 @@ describe("DatabaseWorkspaceService.executeMutationWithApproval", () => {
   const dirs: string[] = [];
   const services: DatabaseWorkspaceService[] = [];
 
-  function makeWorkspace(): DatabaseWorkspaceService {
+  function makeWorkspace(manager?: DatabaseConnectionManager): DatabaseWorkspaceService {
     const dir = mkdtempSync(join(tmpdir(), "ws-mut-test-"));
     dirs.push(dir);
     writeFileSync(join(dir, "connections.yaml"), CONNECTIONS_YAML);
-    const ws = new DatabaseWorkspaceService(new StateStore(dir));
+    const ws = new DatabaseWorkspaceService(new StateStore(dir), manager);
     services.push(ws);
     return ws;
   }
@@ -347,5 +349,56 @@ describe("DatabaseWorkspaceService.executeMutationWithApproval", () => {
     await ws.executeMutationWithApproval("DELETE FROM logs", {}, confirm);
     expect(received?.operation).toBe("DELETE");
     expect(received?.warning).toMatch(/WHERE/);
+  });
+
+  it("returns executed with affected rows when approved and the manager succeeds", async () => {
+    // fake 驱动池：executeMutation 返回 affectedRows=3，不连真实 MySQL。
+    const pool: PoolLike = {
+      async query<T = unknown[]>(): Promise<[T, unknown]> {
+        return [[] as unknown as T, null];
+      },
+      async getConnection() {
+        return {
+          async query<T = unknown[]>(): Promise<[T, unknown]> {
+            return [{ affectedRows: 3 } as unknown as T, null];
+          },
+          release() {},
+        };
+      },
+      async end() {},
+    };
+    const connConfig: ResolvedConnectionConfig = {
+      id: "main",
+      environment: "prod",
+      type: "mysql",
+      host: "h1",
+      port: 3306,
+      username: "u",
+      password: "p",
+      defaultDatabase: "appdb",
+      queryLimit: 100,
+    };
+    const manager = new DatabaseConnectionManager([connConfig], () => pool);
+
+    const ws = makeWorkspace(manager);
+    ws.switchTo("prod", "main", "appdb");
+
+    const outcome = await ws.executeMutationWithApproval(
+      "UPDATE orders SET status='done' WHERE id=1",
+      {},
+      async () => true,
+    );
+
+    expect(outcome.status).toBe("executed");
+    // status 已断言，判别联合在此收窄——用显式断言避免条件 expect。
+    const executed = outcome as {
+      status: "executed";
+      affectedRows: number;
+      connectionId: string;
+      database: string;
+    };
+    expect(executed.affectedRows).toBe(3);
+    expect(executed.connectionId).toBe("main");
+    expect(executed.database).toBe("appdb");
   });
 });
