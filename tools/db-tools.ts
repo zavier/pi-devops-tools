@@ -28,13 +28,13 @@ import { showMutationConfirm } from "../commands/mutate-confirm";
 import { LOADER_TOOL_NAME, LAZY_TOOL_INFO, matchDbTools } from "./db-tool-catalog";
 export { applyInitialToolSet } from "./db-tool-catalog";
 
-function truncate(text: string): string {
+function truncate(text: string, hint = "Narrow the query or add a LIMIT."): string {
   const t = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
   if (!t.truncated) return t.content;
   return (
     t.content +
     `\n\n[Output truncated: ${t.outputLines} of ${t.totalLines} lines` +
-    ` (${formatSize(t.outputBytes)} of ${formatSize(t.totalBytes)}). Narrow the query or add a LIMIT.]`
+    ` (${formatSize(t.outputBytes)} of ${formatSize(t.totalBytes)}). ${hint}]`
   );
 }
 
@@ -58,21 +58,6 @@ export function registerDbTools(
   pi: ExtensionAPI,
   getWorkspace: () => DatabaseWorkspaceService,
 ): void {
-  /**
-   * 当未选择数据库且调用方未传显式目标时抛错（→ isError 工具结果），
-   * 除非显式目标本身不需要工作空间选择即可工作。
-   */
-  const ready = (explicitTargetOk = false): DatabaseWorkspaceService => {
-    const ws = getWorkspace();
-    if (!ws.isReady && !explicitTargetOk) {
-      throw new Error(
-        "No database selected. Ask the user to run /db switch first, " +
-          "or pass connection + database explicitly.",
-      );
-    }
-    return ws;
-  };
-
   // ── Loader：按需启用懒加载工具 ────────────────────────────
   pi.registerTool({
     name: LOADER_TOOL_NAME,
@@ -153,7 +138,7 @@ export function registerDbTools(
       ...targetParams,
     }),
     async execute(_toolCallId, params) {
-      const ws = ready(!!(params.connection && params.database));
+      const ws = getWorkspace();
       const result = await ws.executeQuery(params.sql, {
         connectionId: params.connection,
         database: params.database,
@@ -206,7 +191,7 @@ export function registerDbTools(
       ),
     }),
     async execute(_toolCallId, params) {
-      const ws = ready(!!params.connection);
+      const ws = getWorkspace();
       const conns = ws.listConnections();
       const lines = [
         `Connections (${conns.length}):`,
@@ -247,7 +232,7 @@ export function registerDbTools(
       ...targetParams,
     }),
     async execute(_toolCallId, params) {
-      const ws = ready(!!(params.connection && params.database));
+      const ws = getWorkspace();
       const target = ws.resolveTarget({
         connectionId: params.connection,
         database: params.database,
@@ -266,7 +251,10 @@ export function registerDbTools(
           content: [
             {
               type: "text",
-              text: truncate(formatSchemaMarkdown(params.table, target.database, columns, indexes)),
+              text: truncate(
+                formatSchemaMarkdown(params.table, target.database, columns, indexes),
+                "Table has too many columns to display. Use db_query to select specific columns.",
+              ),
             },
           ],
           details,
@@ -274,11 +262,15 @@ export function registerDbTools(
       }
       const tables = await ws.getTables(target);
       details.tables = tables;
+      const tableList = `Tables in ${target.connectionId}/${target.database} (${tables.length}):\n${tables.join("\n")}`;
       return {
         content: [
           {
             type: "text",
-            text: `Tables in ${target.connectionId}/${target.database} (${tables.length}):\n${tables.join("\n")}`,
+            text: truncate(
+              tableList,
+              "Too many tables to display. Inspect a specific table with table= instead.",
+            ),
           },
         ],
         details,
@@ -302,7 +294,7 @@ export function registerDbTools(
       ),
     }),
     async execute(_toolCallId, params) {
-      const ws = ready(!!params.database);
+      const ws = getWorkspace();
       const rows = ws.listRelations(params.table, params.database);
       const lines = rows.map(
         (r) =>
@@ -359,7 +351,7 @@ export function registerDbTools(
       }
 
       // 2. 解析目标
-      const ws = ready(!!(params.connection && params.database));
+      const ws = getWorkspace();
       const target = ws.resolveTarget({
         connectionId: params.connection,
         database: params.database,
@@ -458,8 +450,13 @@ export function registerDbTools(
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate) {
-      const ws = ready(!!params.database);
-      const schema = params.database ?? ws.current!.database;
+      const ws = getWorkspace();
+      const schema = params.database ?? ws.current?.database;
+      if (!schema) {
+        throw new Error(
+          "No database selected. Run /db switch first, or pass connection + database explicitly.",
+        );
+      }
 
       if (params.action === "register") {
         const row = ws.upsertRelation(
