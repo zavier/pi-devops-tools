@@ -12,7 +12,7 @@ import { pickTableFuzzy, withLoader } from "./utils";
 
 // ── 列表格式化 ─────────────────────────────────────────────
 
-function formatRelationsList(rows: RelationRow[]): string {
+export function formatRelationsList(rows: RelationRow[]): string {
   if (rows.length === 0) return "暂无表关联关系。";
 
   const lines = [`═══ 表关联关系 — ${rows.length} 条 ═══`, ""];

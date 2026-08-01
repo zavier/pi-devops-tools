@@ -28,3 +28,6 @@ coverage/
 # OS noise
 Thumbs.db
 .pi/
+
+# Test run reports (per-run artifacts, not versioned)
+docs/testing/run-reports/

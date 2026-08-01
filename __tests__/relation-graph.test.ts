@@ -1,7 +1,27 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
 import { RelationGraph, type QueryFn } from "../relation-graph";
-import type { ColumnRef } from "../types";
+import type { ColumnRef, ColumnRelation } from "../types";
+
+/** 构造一条最小 ColumnRelation（mergeForeignKeys 测试用）。 */
+function fk(over: Partial<ColumnRelation> = {}): ColumnRelation {
+  return {
+    schema: "a",
+    table: "t_order",
+    column: "user_id",
+    condition: "",
+    refSchema: "a",
+    refTable: "t_user",
+    refColumn: "id",
+    relationType: "MANY_TO_ONE",
+    ...over,
+  };
+}
+
+/** 总是失败的 QueryFn——模拟目标表不存在（BFS 容错测试用）。 */
+const failingQuery: QueryFn = async () => {
+  throw new Error("Table 'db1.t_missing' doesn't exist");
+};
 
 function createGraph(): RelationGraph {
   const db = new Database(":memory:");
@@ -105,8 +125,55 @@ describe("RelationGraph", () => {
     );
 
     expect(graph.list("a").length).toBe(1);
-    expect(graph.list("a", "t1").length).toBe(1);
+    expect(graph.list("a", "t1").length).toBe(1); // 源表方向
+    expect(graph.list("a", "t2").length).toBe(1); // 被引用方向(involving 语义)
     expect(graph.list("b", "t1").length).toBe(0);
+  });
+
+  it("registers relations to non-existent targets without validation (see test-plan E10)", () => {
+    const graph = createGraph();
+    const src: ColumnRef = { schema: "a", table: "t1", column: "c1" };
+    const tgt: ColumnRef = { schema: "a", table: "t_nope", column: "id" };
+
+    // 注册时不校验目标表/列是否存在——错误引用要到 BFS 时才暴露。
+    const row = graph.upsert(src, tgt, "MANY_TO_ONE");
+    expect(row.ref_table).toBe("t_nope");
+    expect(graph.list("a").length).toBe(1);
+  });
+
+  describe("mergeForeignKeys", () => {
+    it("adds all new relations and returns the count", () => {
+      const graph = createGraph();
+      const added = graph.mergeForeignKeys([
+        fk({ table: "t1", column: "c1", refTable: "t2" }),
+        fk({ table: "t3", column: "c3", refTable: "t4" }),
+      ]);
+      expect(added).toBe(2);
+      expect(graph.list("a").length).toBe(2);
+    });
+
+    it("skips relations that already exist (idempotent re-sync)", () => {
+      const graph = createGraph();
+      expect(graph.mergeForeignKeys([fk()])).toBe(1);
+      expect(graph.mergeForeignKeys([fk()])).toBe(0); // 重复同步不新增
+      expect(graph.list("a").length).toBe(1);
+    });
+
+    it("treats different conditions as separate relations", () => {
+      const graph = createGraph();
+      expect(
+        graph.mergeForeignKeys([fk({ condition: "type=1" }), fk({ condition: "type=2" })]),
+      ).toBe(2);
+    });
+
+    it("defaults missing relationType to MANY_TO_ONE", () => {
+      const graph = createGraph();
+      const { relationType: _rt, ...withoutType } = fk();
+      void _rt;
+      // 运行时信息可能不带 relationType(如 FK 发现路径)——类型断言模拟
+      graph.mergeForeignKeys([withoutType as ColumnRelation]);
+      expect(graph.list("a")[0].relation_type).toBe("MANY_TO_ONE");
+    });
   });
 });
 
@@ -244,5 +311,19 @@ describe("RelationGraph.bfsQuery", () => {
 
     expect(calls[0].sql).toContain("FROM `db2`.`t_user`");
     expect(results[0].schema).toBe("db2");
+  });
+
+  it("tolerates missing target tables — query errors are swallowed, no crash", async () => {
+    const graph = createGraph();
+    // 指向不存在的表(见 E10: 注册不校验)
+    graph.upsert(
+      { schema: "db1", table: "t_order", column: "user_id" },
+      { schema: "db1", table: "t_missing", column: "id" },
+    );
+
+    const results = await graph.bfsQuery(failingQuery, "db1", "t_order", [{ user_id: 7 }], 2, 10);
+
+    // allSettled 吞掉查询错误: 不崩溃, 只是没有关联结果
+    expect(results.length).toBe(0);
   });
 });

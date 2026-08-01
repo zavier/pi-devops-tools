@@ -17,6 +17,85 @@ const CONNECTIONS_YAML = `connections:
     host: h2
 `;
 
+describe("DatabaseWorkspaceService favorites", () => {
+  const dirs: string[] = [];
+  const services: DatabaseWorkspaceService[] = [];
+
+  function makeWorkspace(): DatabaseWorkspaceService {
+    const dir = mkdtempSync(join(tmpdir(), "ws-fav-test-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "connections.yaml"), CONNECTIONS_YAML);
+    const ws = new DatabaseWorkspaceService(new StateStore(dir));
+    services.push(ws);
+    return ws;
+  }
+
+  afterEach(() => {
+    for (const ws of services.splice(0)) ws.destroy();
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("saves a favorite bound to the current database", () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+
+    const fav = ws.saveFavorite("查订单", "SELECT * FROM t_orders");
+    expect(fav.name).toBe("查订单");
+    expect(fav.database).toBe("appdb");
+    expect(fav.id).toBeGreaterThan(0);
+
+    const all = ws.listFavorites();
+    expect(all).toHaveLength(1);
+    expect(all[0].sql).toBe("SELECT * FROM t_orders");
+  });
+
+  it("saves a global favorite when no database is selected", () => {
+    const ws = makeWorkspace();
+    const fav = ws.saveFavorite("全局模板", "SELECT 1", "说明");
+    expect(fav.database).toBe("");
+    expect(fav.description).toBe("说明");
+  });
+
+  it("filters favorites by current database", () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+    ws.saveFavorite("a1", "SELECT 1"); // appdb
+    ws.upsertRelation("x", "c", "y", "d", { database: "logs" }); // 无关
+
+    // 切到另一库后, 原库收藏不可见
+    ws.switchTo("prod", "main", "logs");
+    ws.saveFavorite("a2", "SELECT 2");
+    const inLogs = ws.listFavorites();
+    expect(inLogs.map((f) => f.name)).toEqual(["a2"]);
+
+    // 未切换时按当前库过滤
+    ws.switchTo("prod", "main", "appdb");
+    expect(ws.listFavorites().map((f) => f.name)).toEqual(["a1"]);
+  });
+
+  it("filters favorites by keyword across the current database", () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+    ws.saveFavorite("订单查询", "SELECT * FROM t_orders");
+    ws.saveFavorite("用户查询", "SELECT * FROM t_users");
+
+    expect(ws.listFavorites("订单").map((f) => f.name)).toEqual(["订单查询"]);
+    // 收藏按创建时间倒序(最新在前)
+    expect(ws.listFavorites("SELECT").map((f) => f.name)).toEqual(["用户查询", "订单查询"]);
+    expect(ws.listFavorites("不存在")).toHaveLength(0);
+  });
+
+  it("deletes a favorite by id", () => {
+    const ws = makeWorkspace();
+    ws.switchTo("prod", "main", "appdb");
+    const fav = ws.saveFavorite("待删除", "SELECT 1");
+
+    expect(ws.deleteFavorite(fav.id)).toBe(true);
+    expect(ws.listFavorites()).toHaveLength(0);
+    expect(ws.deleteFavorite(fav.id)).toBe(false); // 二次删除空操作
+  });
+});
+
 describe("DatabaseWorkspaceService target resolution", () => {
   const dirs: string[] = [];
   const services: DatabaseWorkspaceService[] = [];

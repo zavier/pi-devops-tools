@@ -126,6 +126,10 @@ connections:
 
 `db_mutate` 用于数据修改：DDL（CREATE/DROP/ALTER/TRUNCATE）被硬性拒绝，UPDATE/DELETE 无 WHERE 时会显示警告。每次调用弹出 overlay 确认弹窗（Enter 确认 / Esc 取消），不可跳过。
 
+## 测试
+
+端到端验证用例集见 [docs/testing/](docs/testing/)：`init-env.mjs` 每轮自动生成命名唯一的库对（主测试库 + 跨库测试库）并完成建表与种子，内置 8 项环境预检，`--cleanup` 一键销毁，不依赖固定库、多轮互不干扰；`schema.sql` 提供一套无外键、含全部关系类型与边界情况的测试表结构；`test-plan.md` 按能力域给出约 80 个用例及精确预期值（含只读守卫、LIMIT 注入、列折叠、BFS 关联查询等边界）；`ai-runner.md` 是执行协议——AI 自动跑工具层用例并断言，产出人工验证清单（写操作确认 + 交互命令），人逐项打勾即可；`requirements.md` 说明机器环境要求与全新机器部署步骤。
+
 ## 启用与禁用
 
 扩展支持两层开关：

@@ -31,7 +31,7 @@ interface ExecutedResult {
 // ── 行清洗 ────────────────────────────────────────────
 
 /** 将 SqlRow 值转为 string|null —— 保证条目中 JSON 序列化安全。 */
-function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
+export function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
   return rows.map((row) => {
     const obj: Record<string, string | null> = {};
     for (const key of Object.keys(row)) {
@@ -44,7 +44,7 @@ function sanitizeRows(rows: SqlRow[]): Record<string, string | null>[] {
 
 // ── 关联结果格式化 ──────────────────────────────────
 
-function formatRelatedResults(related: RelatedResult[]): string {
+export function formatRelatedResults(related: RelatedResult[]): string {
   if (related.length === 0) return "";
 
   const lines: string[] = ["", "────── 关联表 ──────", ""];

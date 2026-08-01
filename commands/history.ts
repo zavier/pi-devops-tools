@@ -21,7 +21,7 @@ import { executeAndDisplay } from "./query";
 
 // ── 格式化 ───────────────────────────────────────────────────
 
-function formatEntry(entry: HistoryEntry, index: number): string {
+export function formatEntry(entry: HistoryEntry, index: number): string {
   const time = entry.createdTime.replace("T", " ").slice(5, 19); // "MM-DD HH:MM:SS"
   const sql = entry.sql.length > 52 ? entry.sql.slice(0, 49) + "…" : entry.sql;
   return [
@@ -33,7 +33,7 @@ function formatEntry(entry: HistoryEntry, index: number): string {
   ].join("  ");
 }
 
-function entryToItem(entry: HistoryEntry, index: number): SelectItem {
+export function entryToItem(entry: HistoryEntry, index: number): SelectItem {
   return {
     value: String(entry.id),
     label: formatEntry(entry, index),

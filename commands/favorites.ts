@@ -10,7 +10,7 @@ import { executeAndDisplay } from "./query";
 
 // ── 列表格式化 ─────────────────────────────────────────────
 
-function formatFavoriteList(entries: FavoriteEntry[], currentDb?: string): string {
+export function formatFavoriteList(entries: FavoriteEntry[], currentDb?: string): string {
   if (entries.length === 0) {
     return currentDb
       ? `暂无收藏（${currentDb}）。使用 /db favorite add 添加。`

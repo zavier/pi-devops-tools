@@ -157,8 +157,10 @@ export class RelationStore {
       params.push(filter.schema);
     }
     if (filter?.table) {
-      conditions.push("table_name = ?");
-      params.push(filter.table);
+      // "involving" 语义: 匹配源表或被引用表(图是双向的, 查询/关联提示
+      // 需要能看到"被引用"方向的关系——如 /db query t_customers 的关联提示)
+      conditions.push("(table_name = ? OR ref_table = ?)");
+      params.push(filter.table, filter.table);
     }
     if (filter?.refSchema) {
       conditions.push("ref_schema = ?");

@@ -136,7 +136,7 @@ export function registerDbCommand(
 
 // ====== 参数补全 ======
 
-async function getCompletions(
+export async function getCompletions(
   prefix: string,
   ws: DatabaseWorkspaceService,
 ): Promise<AutocompleteItem[] | null> {
