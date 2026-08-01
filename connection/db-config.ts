@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 
 // ====== 配置文件类型 ======
 
-export interface ConnectionConfig {
+interface ConnectionConfig {
   environment: string;
   type: "mysql";
   host: string;
@@ -24,7 +24,7 @@ export interface ConnectionConfig {
   queryLimit?: number; // row cap for SELECTs without LIMIT (default: DEFAULT_QUERY_LIMIT)
 }
 
-export interface ConnectionsFile {
+interface ConnectionsFile {
   connections: Record<string, ConnectionConfig>;
 }
 
@@ -59,7 +59,7 @@ function resolveEnvVars(value: string): { resolved: string; unresolved: string[]
   return { resolved, unresolved };
 }
 
-export interface ConfigLoadResult {
+interface ConfigLoadResult {
   connections: ResolvedConnectionConfig[];
   /** 被跳过的连接或未解析的 env 变量的警告。 */
   warnings: string[];

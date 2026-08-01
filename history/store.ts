@@ -151,7 +151,7 @@ export interface FavoriteEntry {
   updatedTime: string;
 }
 
-export interface FavoriteFilter {
+interface FavoriteFilter {
   database?: string; // also includes global (database = '')
   keyword?: string;
   limit?: number;

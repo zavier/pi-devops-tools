@@ -177,7 +177,7 @@ export async function handleAdd(
 
   // --- 写入 ---
   try {
-    ws.createConnection(env, connName, {
+    ws.createConnection(connName, {
       environment: env,
       type: "mysql",
       host,

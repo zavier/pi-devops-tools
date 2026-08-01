@@ -36,9 +36,9 @@ export interface QueryResultDoc {
   related?: RelatedResult[];
 }
 
-export type DocumentAudience = "tui-zh" | "llm-zh";
+type DocumentAudience = "tui-zh" | "llm-zh";
 
-export interface RenderOptions {
+interface RenderOptions {
   audience: DocumentAudience;
   /** 仅 tui-zh 使用：自适应终端宽度。 */
   width?: number;

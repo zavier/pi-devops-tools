@@ -47,7 +47,7 @@ export async function showMutationConfirm(
   const warningText = params.warning ?? DEFAULT_WARNING;
 
   const result = await ctx.ui.custom<boolean>(
-    (tui, theme, _kb, done) => {
+    (_tui, theme, _kb, done) => {
       const container = new Container();
 
       // ── 上边框 ──

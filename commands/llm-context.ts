@@ -25,7 +25,7 @@ export function sendActiveDb(pi: ExtensionAPI, ws: DatabaseWorkspaceService): vo
 }
 
 /** 已配置但未选择数据库：引导用户运行 /db switch。 */
-export function sendConfiguredHint(pi: ExtensionAPI, ws: DatabaseWorkspaceService): void {
+function sendConfiguredHint(pi: ExtensionAPI, ws: DatabaseWorkspaceService): void {
   pi.sendMessage(
     {
       customType: "db-hint",
@@ -48,19 +48,4 @@ export function sendDbStatus(pi: ExtensionAPI, ws: DatabaseWorkspaceService): vo
   } else if (ws.isConfigured) {
     sendConfiguredHint(pi, ws);
   }
-}
-
-/** 未配置任何连接：triggerTurn 让 AI 主动提议建立第一个连接。 */
-export function sendUnconfiguredHint(pi: ExtensionAPI, configPath: string): void {
-  pi.sendMessage(
-    {
-      customType: "db-hint",
-      content:
-        `No database connections are configured yet. Help the user create their first ` +
-        `connection in ${configPath}. Ask for host, port, username, password, and default ` +
-        `database name. After the config file is written, tell the user to run /db switch to connect.`,
-      display: false,
-    },
-    { deliverAs: "followUp", triggerTurn: true },
-  );
 }

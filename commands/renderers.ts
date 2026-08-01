@@ -9,15 +9,11 @@
  * 文档文本由 formatting/result-document.ts 统一装配（纯函数），
  * 本模块只做两件事：把 DocLine 的 style 映射为 theme 颜色、
  * 追加依赖 pi keyHint 的交互提示行。
- *
- * 面板（`db-workspace-panel`）保持为消息渲染器——其内容是
- * 对 LLM 也有用的短预格式化文本。
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Text } from "@earendil-works/pi-tui";
 import type { QueryResultDoc } from "../formatting/result-document";
 import { renderQueryDocument } from "../formatting/result-document";
 
@@ -64,13 +60,6 @@ export function registerRenderers(pi: ExtensionAPI): void {
       },
       invalidate() {},
     } satisfies Component;
-  });
-
-  // ── db-workspace-panel：短预格式化文本——保持为消息渲染器 ──
-
-  pi.registerMessageRenderer("db-workspace-panel", (message, _options, _theme) => {
-    if (typeof message.content !== "string") return undefined;
-    return new Text(message.content, 1, 0);
   });
 }
 

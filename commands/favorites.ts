@@ -56,7 +56,7 @@ export async function handleFavorite(
 async function handleFavoriteAdd(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
-  pi: ExtensionAPI,
+  _pi: ExtensionAPI,
   args: string[],
 ): Promise<void> {
   let name: string | undefined;

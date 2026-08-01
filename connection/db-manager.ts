@@ -57,18 +57,18 @@ const defaultPoolFactory: PoolFactory = (cfg) =>
 
 // ====== 选项与输出 ======
 
-export interface QueryOptions {
+interface QueryOptions {
   params?: unknown[]; // bound values for ? placeholders
 }
 
-export interface QueryOutput {
+interface QueryOutput {
   columns: string[];
   rows: SqlRow[];
   elapsed: string;
   sql: string; // final SQL after policy (LIMIT may have been appended)
 }
 
-export interface MutationOutput {
+interface MutationOutput {
   affectedRows: number;
   elapsed: string;
   sql: string;
