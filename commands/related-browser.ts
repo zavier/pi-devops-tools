@@ -21,7 +21,7 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import { Container, Key, matchesKey, Text } from "@earendil-works/pi-tui";
+import { Box, Key, matchesKey, Text } from "@earendil-works/pi-tui";
 import { formatTableDisplay } from "../formatting/result-table";
 import type { RelatedTuiData } from "./renderers";
 
@@ -161,6 +161,9 @@ function viewportHeight(termRows: number): number {
 
 /**
  * 打开关联表浏览器 overlay。
+ *
+ * 整个弹窗用 Box 包裹并以 customMessageBg 填充不透明背景，
+ * 避免与下层聊天/编辑器内容混叠；边框用主题的 borderAccent 色。
  * 切换表时重置滚动；滚动按内容行数与可视高度 clamp。
  */
 export async function openRelatedBrowser(
@@ -176,34 +179,38 @@ export async function openRelatedBrowser(
     (tui, theme, _kb, done) => {
       const nav = createBrowserNav(cache.related.length);
       let scroll = 0;
+      /** 最近一次渲染的 overlay 宽度——build 用它计算表格布局宽度。 */
+      let lastWidth = 80;
 
-      const container = new Container();
-      container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
+      // Box 提供不透明背景（customMessageBg）与统一内边距。
+      const box = new Box(1, 1, (s) => theme.bg("customMessageBg", s));
+      box.addChild(new DynamicBorder((s) => theme.fg("borderAccent", s)));
 
-      const titleText = new Text("", 1, 0);
-      container.addChild(titleText);
+      const titleText = new Text("", 0, 0);
+      box.addChild(titleText);
 
-      const tabsText = new Text("", 1, 0);
-      container.addChild(tabsText);
+      const tabsText = new Text("", 0, 0);
+      box.addChild(tabsText);
 
-      const pathText = new Text("", 1, 0);
-      container.addChild(pathText);
+      const pathText = new Text("", 0, 0);
+      box.addChild(pathText);
 
-      const separatorText = new Text("", 1, 0);
-      container.addChild(separatorText);
+      const separatorText = new Text("", 0, 0);
+      box.addChild(separatorText);
 
-      const tableText = new Text("", 1, 0);
-      container.addChild(tableText);
+      const tableText = new Text("", 0, 0);
+      box.addChild(tableText);
 
-      const footerText = new Text("", 1, 0);
-      container.addChild(footerText);
+      const footerText = new Text("", 0, 0);
+      box.addChild(footerText);
 
-      container.addChild(new DynamicBorder((s) => theme.fg("accent", s)));
+      box.addChild(new DynamicBorder((s) => theme.fg("borderAccent", s)));
 
-      /** 重建各段文本：按当前表、滚动位置与终端尺寸应用样式。 */
+      /** 重建各段文本：按当前表、滚动位置与 overlay 宽度应用样式。 */
       const build = (): void => {
-        const width = tui.terminal.columns;
-        const content = buildBrowserContent(cache, nav.getIndex(), Math.max(40, width - 4));
+        // Box 左右 padding 各 1，内容可用宽度 = overlay 宽度 - 2。
+        const contentWidth = Math.max(40, lastWidth - 2);
+        const content = buildBrowserContent(cache, nav.getIndex(), contentWidth);
         const viewport = viewportHeight(tui.terminal.rows);
         const maxScroll = Math.max(0, content.table.length - viewport);
         scroll = Math.min(scroll, maxScroll);
@@ -225,7 +232,7 @@ export async function openRelatedBrowser(
 
         pathText.setText(content.path ? theme.fg("muted", `路径：${content.path}`) : " ");
 
-        separatorText.setText(theme.fg("dim", "─".repeat(Math.max(10, width - 4))));
+        separatorText.setText(theme.fg("dim", "─".repeat(Math.max(10, contentWidth))));
 
         if (content.empty) {
           tableText.setText(theme.fg("warning", "（空结果）"));
@@ -241,10 +248,13 @@ export async function openRelatedBrowser(
       build();
 
       return {
-        render: (w) => container.render(w),
+        render: (w) => {
+          lastWidth = w;
+          return box.render(w);
+        },
         invalidate: () => {
           build();
-          container.invalidate();
+          box.invalidate();
         },
         handleInput: (data: string) => {
           const navResult = nav.handleKey(data);
@@ -260,11 +270,7 @@ export async function openRelatedBrowser(
           }
 
           // 滚动：需要内容高度计算 maxScroll
-          const content = buildBrowserContent(
-            cache,
-            nav.getIndex(),
-            Math.max(40, tui.terminal.columns - 4),
-          );
+          const content = buildBrowserContent(cache, nav.getIndex(), Math.max(40, lastWidth - 2));
           const viewport = viewportHeight(tui.terminal.rows);
           const maxScroll = Math.max(0, content.table.length - viewport);
 
