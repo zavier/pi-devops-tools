@@ -203,13 +203,15 @@ function formatTransposed(
 
   // 自适应列名宽度（上限 24）
   const colNameWidth = Math.min(24, Math.max(...cols.map((c) => c.length)));
-  // 单元格宽度：计入行表头之间的所有 “ │ ” 分隔符
+  // 单元格宽度：计入行表头之间的所有 “ │ ” 分隔符。
+  // 注意下限是 1 而不是 4——cellsBudget 小于每列 4 字符时若钳制到 4，
+  // 总行宽会超出 width，触发 TUI 的超宽行断言崩溃。
   const LEFT_OVERHEAD = 5; // "  " + " │ " before the first cell
   const BETWEEN_OVERHEAD = 3 * (rowHeaders.length - 1); // " │ " between cells
   const cellsBudget = Math.max(0, width - colNameWidth - LEFT_OVERHEAD - BETWEEN_OVERHEAD);
   const cellWidth =
     rowHeaders.length > 0
-      ? Math.min(40, Math.max(4, Math.floor(cellsBudget / rowHeaders.length)))
+      ? Math.min(40, Math.max(1, Math.floor(cellsBudget / rowHeaders.length)))
       : 40;
 
   const lines: string[] = [];
@@ -252,9 +254,10 @@ function formatVertical(
   const MAX_DISPLAY = 5;
   const displayRows = rows.slice(0, MAX_DISPLAY);
   const labelWidth = Math.min(28, Math.max(...cols.map((c) => c.length)));
-  // 将单元格值截断到标签与分隔符之后能容纳的长度
+  // 将单元格值截断到标签与分隔符之后能容纳的长度。
+  // 下限 1 而不是 20——宽度不够时若钳制到 20，行宽会超出 width。
   const VALUE_OVERHEAD = 7; // "  " + " │ "  (2 leading + 3 separator + 2 padding)
-  const valueCap = Math.max(20, Math.min(60, width - labelWidth - VALUE_OVERHEAD));
+  const valueCap = Math.max(1, Math.min(60, width - labelWidth - VALUE_OVERHEAD));
   const lines: string[] = [];
   for (let i = 0; i < displayRows.length; i++) {
     const row = displayRows[i];

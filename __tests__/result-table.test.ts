@@ -2,6 +2,7 @@
  * formatting/result-table.ts 的测试——纯函数，无依赖。
  */
 import { describe, it, expect } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   analyzeColumns,
   layoutColumns,
@@ -329,5 +330,41 @@ describe("formatTableDisplay", () => {
     const result = formatTableDisplay({ columns: cols, rows }, 55);
     // 12 列单行放不下横向 → 转置。格式化器不应崩溃。
     expect(result).not.toBe("（空结果）");
+  });
+
+  it("窄宽度下所有行不超过给定宽度（回归：超宽行触发 TUI 断言崩溃）", () => {
+    // 长列名 + 10 行的宽表：横向放不下 → 转置。修复前 cellWidth 下限 4，
+    // 窄宽度（40/55）下总行宽超出 width。
+    const cols = [
+      "very_long_column_name_a",
+      "very_long_column_name_b",
+      "very_long_column_name_c",
+      "very_long_column_name_d",
+    ];
+    const rows = Array.from({ length: 10 }, (_, r) =>
+      Object.fromEntries(cols.map((c, i) => [c, `value_${r}_${i}`])),
+    );
+    for (const width of [40, 55, 70, 90]) {
+      const result = formatTableDisplay({ columns: cols, rows }, width);
+      for (const line of result.split("\n")) {
+        expect(visibleWidth(line), `width=${width}: ${line}`).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  it("窄宽度下纵向模式的行宽不超过给定宽度", () => {
+    // 20 列长列名 + 15 行：横向放不下（minW 钳制后仍超预算）、行数 > 10 不走转置
+    // → 纵向。修复前 valueCap 下限 20，窄宽度（40/55）下键值行超出 width。
+    const cols = Array.from({ length: 20 }, (_, i) => `very_long_column_name_${i}`);
+    const rows = Array.from({ length: 15 }, (_, r) =>
+      Object.fromEntries(cols.map((c, i) => [c, `value_${r}_${i}`])),
+    );
+    for (const width of [40, 55, 70, 90]) {
+      const result = formatTableDisplay({ columns: cols, rows }, width);
+      expect(result).toContain("─── Row");
+      for (const line of result.split("\n")) {
+        expect(visibleWidth(line), `width=${width}: ${line}`).toBeLessThanOrEqual(width);
+      }
+    }
   });
 });

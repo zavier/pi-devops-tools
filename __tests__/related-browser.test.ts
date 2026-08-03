@@ -6,7 +6,7 @@
  * 通过 matchesKey 解码——与 filter-input 测试同一契约。
  */
 import { describe, it, expect } from "vitest";
-import { matchesKey, Key } from "@earendil-works/pi-tui";
+import { matchesKey, Key, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
   createBrowserNav,
   buildBrowserContent,
@@ -156,6 +156,39 @@ describe("buildBrowserContent", () => {
     const content = buildBrowserContent(c, 0, 80);
     expect(content.tabs.length).toBe(7); // 6 个 + 折叠项
     expect(content.tabs[6]).toEqual({ label: "… 还有 3 个", active: false });
+  });
+});
+
+// ====== tabs 行超宽截断（回归：TUI 宽度断言崩溃）======
+
+describe("tabs 行宽度", () => {
+  it("长表名标签 join 后超出内容宽度（回归前提成立）", () => {
+    const labels = Array.from(
+      { length: 6 },
+      (_, i) => `order_items_2024_${i}_snapshot（${i + 1} 行）`,
+    );
+    const styled = labels.map((l, i) => (i === 0 ? `\x1b[1m▶ ${l}\x1b[22m` : `   ${l}`)).join("  ");
+    // 终端 163 列、overlay 92%、Box 内边距 2 → 内容宽 ≈ 148
+    expect(visibleWidth(styled)).toBeGreaterThan(148);
+  });
+
+  it("truncateToWidth 把超宽标签行截到内容宽度内并保留省略号", () => {
+    const labels = Array.from(
+      { length: 6 },
+      (_, i) => `order_items_2024_${i}_snapshot（${i + 1} 行）`,
+    );
+    const styled = labels.map((l, i) => (i === 0 ? `\x1b[1m▶ ${l}\x1b[22m` : `   ${l}`)).join("  ");
+    const truncated = truncateToWidth(styled, 148);
+    expect(visibleWidth(truncated)).toBeLessThanOrEqual(148);
+    // 默认省略号为 ASCII 省略号
+    expect(truncated).toContain("...");
+  });
+
+  it("truncateToWidth 截断 ANSI 样式文本时保留样式（冒烟契约）", () => {
+    const styled = "\x1b[32m" + "A".repeat(50) + "\x1b[0m";
+    const truncated = truncateToWidth(styled, 20);
+    expect(truncated).toContain("\x1b[32m");
+    expect(visibleWidth(truncated)).toBeLessThanOrEqual(20);
   });
 });
 
