@@ -9,6 +9,7 @@
  */
 
 import type { SqlRow } from "../types";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 // ====== 类型 ======
 
@@ -87,8 +88,33 @@ function hiddenNote(stats: ColumnStats, maxWidth = 160): string {
   return parts.length > 0 ? trimToWidth(`  ⓘ ${parts.join("  |  ")}`, maxWidth) : "";
 }
 
+/**
+ * 纯文本按显示宽度（终端列数）截断，超出部分替换为省略号。
+ *
+ * 不用 pi-tui 的 truncateToWidth——它会注入 \x1b[0m reset，
+ * 而表格行是纯文本契约（related-browser 依赖无 ANSI 再套主题色）。
+ * 宽度判定用 visibleWidth，与 TUI 的宽度断言同一把尺子
+ * （中文/emoji 占 2 列）。
+ */
+function truncatePlain(s: string, max: number): string {
+  if (visibleWidth(s) <= max) return s;
+  let w = 0;
+  let i = 0;
+  for (; i < s.length; i++) {
+    const cw = visibleWidth(s[i]);
+    if (w + cw > max - 1) break;
+    w += cw;
+  }
+  return s.slice(0, i) + "…";
+}
+
+/** 按显示宽度右补齐到 w 列。 */
+function padTo(s: string, w: number): string {
+  return s + " ".repeat(Math.max(0, w - visibleWidth(s)));
+}
+
 function trimToWidth(s: string, max: number): string {
-  return s.length > max ? s.slice(0, Math.max(0, max - 1)) + "…" : s;
+  return truncatePlain(s, max);
 }
 
 // ====== 自适应列宽打包 ======
@@ -136,9 +162,14 @@ export function layoutColumns(idealWidths: number[], budget: number): number[] {
 
 // ====== 单元格辅助 ======
 
+/**
+ * 单元格截断/补齐到显示宽度 w。
+ *
+ * 不能用 UTF-16 码元长度（s.length）：中文/emoji 单元格按码元截断
+ * 后显示宽度仍可能超出预算，行宽超出 width 会触发 TUI 断言崩溃。
+ */
 function pad(s: string, w: number): string {
-  if (s.length > w) return s.slice(0, Math.max(0, w - 1)) + "…";
-  return s.padEnd(w);
+  return visibleWidth(s) > w ? truncatePlain(s, w - 1) + "…" : padTo(s, w);
 }
 
 function cellString(val: unknown): string {
@@ -201,8 +232,8 @@ function formatTransposed(
     return label.length > 22 ? label.slice(0, 19) + "…" : label;
   });
 
-  // 自适应列名宽度（上限 24）
-  const colNameWidth = Math.min(24, Math.max(...cols.map((c) => c.length)));
+  // 自适应列名宽度（上限 24）——按显示宽度
+  const colNameWidth = Math.min(24, Math.max(...cols.map((c) => visibleWidth(c))));
   // 单元格宽度：计入行表头之间的所有 “ │ ” 分隔符。
   // 注意下限是 1 而不是 4——cellsBudget 小于每列 4 字符时若钳制到 4，
   // 总行宽会超出 width，触发 TUI 的超宽行断言崩溃。
@@ -231,7 +262,7 @@ function formatTransposed(
   // 每列一行
   for (const col of cols) {
     const vals = displayRows.map((row) => pad(cellString(row[col]), cellWidth));
-    lines.push("  " + col.padEnd(colNameWidth) + " │ " + vals.join(" │ "));
+    lines.push("  " + padTo(col, colNameWidth) + " │ " + vals.join(" │ "));
   }
 
   lines.push("");
@@ -253,7 +284,7 @@ function formatVertical(
 ): string {
   const MAX_DISPLAY = 5;
   const displayRows = rows.slice(0, MAX_DISPLAY);
-  const labelWidth = Math.min(28, Math.max(...cols.map((c) => c.length)));
+  const labelWidth = Math.min(28, Math.max(...cols.map((c) => visibleWidth(c))));
   // 将单元格值截断到标签与分隔符之后能容纳的长度。
   // 下限 1 而不是 20——宽度不够时若钳制到 20，行宽会超出 width。
   const VALUE_OVERHEAD = 7; // "  " + " │ "  (2 leading + 3 separator + 2 padding)
@@ -265,8 +296,8 @@ function formatVertical(
     lines.push(`─── Row ${i + 1}${id ? `  [${id}]` : ""} ───`);
     for (const col of cols) {
       const s = cellString(row[col]);
-      const display = s.length > valueCap ? s.slice(0, Math.max(0, valueCap - 1)) + "…" : s;
-      lines.push(`  ${col.padEnd(labelWidth)} │ ${display}`);
+      const display = visibleWidth(s) > valueCap ? truncatePlain(s, valueCap - 1) + "…" : s;
+      lines.push(`  ${padTo(col, labelWidth)} │ ${display}`);
     }
     lines.push("");
   }
@@ -279,7 +310,7 @@ function formatVertical(
 // ====== 纵向完整（展开模式——不截断，全部行）======
 
 export function formatVerticalFull(columns: string[], rows: SqlRow[]): string[] {
-  const labelWidth = Math.min(28, Math.max(...columns.map((c) => c.length)));
+  const labelWidth = Math.min(28, Math.max(...columns.map((c) => visibleWidth(c))));
   const lines: string[] = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -288,7 +319,7 @@ export function formatVerticalFull(columns: string[], rows: SqlRow[]): string[] 
     lines.push(`─── Row ${i + 1}${id ? `  [${id}]` : ""} ───`);
     for (const col of columns) {
       const s = cellString(row[col]);
-      lines.push(`  ${col.padEnd(labelWidth)} │ ${s}`);
+      lines.push(`  ${padTo(col, labelWidth)} │ ${s}`);
     }
     lines.push("");
   }
@@ -315,13 +346,13 @@ export function formatTableDisplay(result: TableResult, width: number): string {
   const cols = allHidden ? result.columns : stats.visible;
   const totalRows = result.rows.length;
 
-  // 计算每列理想内容宽度（表头 + 首页行）
+  // 计算每列理想内容宽度（表头 + 首页行）——按显示宽度，中文/emoji 占 2 列
   const CELL_CAP = 60;
   const IDEAL_ROWS = 20;
   const ideal = cols.map((col) => {
-    let max = col.length;
+    let max = visibleWidth(col);
     for (let i = 0; i < Math.min(IDEAL_ROWS, result.rows.length); i++) {
-      const len = cellString(result.rows[i][col]).length;
+      const len = visibleWidth(cellString(result.rows[i][col]));
       max = Math.max(max, Math.min(len, CELL_CAP));
     }
     return max;

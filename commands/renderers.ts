@@ -13,7 +13,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import type { QueryResultDoc } from "../formatting/result-document";
 import { renderQueryDocument } from "../formatting/result-document";
 
@@ -65,8 +65,12 @@ export function registerRenderers(pi: ExtensionAPI): void {
 
 // ====== 内部辅助 ======
 
-/** 装配文档 + 映射颜色 + 追加 keyHint 交互提示。 */
-function renderQueryResult(
+/**
+ * 装配文档 + 映射颜色 + 追加 keyHint 交互提示。
+ *
+ * 导出供测试（fake theme 可测）。
+ */
+export function renderQueryResult(
   d: QueryResultEntryData,
   width: number,
   expanded: boolean,
@@ -90,9 +94,14 @@ function renderQueryResult(
     } else if (l.hint === "expand-related") {
       text = `（${keyHint("app.tools.expand", "展开查看完整内容")}，或 /db related 打开浏览器）`;
     }
-    if (l.style === "accent") return theme.fg("accent", theme.bold(text));
-    if (l.style === "dim") return theme.fg("dim", text);
-    if (l.style === "muted") return theme.fg("muted", text);
-    return text;
+    let styled: string;
+    if (l.style === "accent") styled = theme.fg("accent", theme.bold(text));
+    else if (l.style === "dim") styled = theme.fg("dim", text);
+    else if (l.style === "muted") styled = theme.fg("muted", text);
+    else styled = text;
+    // 最后防线：任何一行都不超过渲染宽度——长 SQL、展开态长值、
+    // 中文单元格表格都可能超宽，Text 不自动截断，超宽行会触发
+    // TUI 的宽度断言崩溃（Rendered line N exceeds terminal width）。
+    return truncateToWidth(styled, Math.max(1, width), "…");
   });
 }
