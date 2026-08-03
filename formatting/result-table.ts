@@ -10,6 +10,7 @@
 
 import type { SqlRow } from "../types";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { padToDisplayWidth, truncateToDisplayWidth } from "./display-width";
 
 // ====== 类型 ======
 
@@ -88,33 +89,8 @@ function hiddenNote(stats: ColumnStats, maxWidth = 160): string {
   return parts.length > 0 ? trimToWidth(`  ⓘ ${parts.join("  |  ")}`, maxWidth) : "";
 }
 
-/**
- * 纯文本按显示宽度（终端列数）截断，超出部分替换为省略号。
- *
- * 不用 pi-tui 的 truncateToWidth——它会注入 \x1b[0m reset，
- * 而表格行是纯文本契约（related-browser 依赖无 ANSI 再套主题色）。
- * 宽度判定用 visibleWidth，与 TUI 的宽度断言同一把尺子
- * （中文/emoji 占 2 列）。
- */
-function truncatePlain(s: string, max: number): string {
-  if (visibleWidth(s) <= max) return s;
-  let w = 0;
-  let i = 0;
-  for (; i < s.length; i++) {
-    const cw = visibleWidth(s[i]);
-    if (w + cw > max - 1) break;
-    w += cw;
-  }
-  return s.slice(0, i) + "…";
-}
-
-/** 按显示宽度右补齐到 w 列。 */
-function padTo(s: string, w: number): string {
-  return s + " ".repeat(Math.max(0, w - visibleWidth(s)));
-}
-
 function trimToWidth(s: string, max: number): string {
-  return truncatePlain(s, max);
+  return truncateToDisplayWidth(s, max);
 }
 
 // ====== 自适应列宽打包 ======
@@ -169,7 +145,7 @@ export function layoutColumns(idealWidths: number[], budget: number): number[] {
  * 后显示宽度仍可能超出预算，行宽超出 width 会触发 TUI 断言崩溃。
  */
 function pad(s: string, w: number): string {
-  return visibleWidth(s) > w ? truncatePlain(s, w - 1) + "…" : padTo(s, w);
+  return visibleWidth(s) > w ? truncateToDisplayWidth(s, w - 1) + "…" : padToDisplayWidth(s, w);
 }
 
 function cellString(val: unknown): string {
@@ -262,7 +238,7 @@ function formatTransposed(
   // 每列一行
   for (const col of cols) {
     const vals = displayRows.map((row) => pad(cellString(row[col]), cellWidth));
-    lines.push("  " + padTo(col, colNameWidth) + " │ " + vals.join(" │ "));
+    lines.push("  " + padToDisplayWidth(col, colNameWidth) + " │ " + vals.join(" │ "));
   }
 
   lines.push("");
@@ -296,8 +272,9 @@ function formatVertical(
     lines.push(`─── Row ${i + 1}${id ? `  [${id}]` : ""} ───`);
     for (const col of cols) {
       const s = cellString(row[col]);
-      const display = visibleWidth(s) > valueCap ? truncatePlain(s, valueCap - 1) + "…" : s;
-      lines.push(`  ${padTo(col, labelWidth)} │ ${display}`);
+      const display =
+        visibleWidth(s) > valueCap ? truncateToDisplayWidth(s, valueCap - 1) + "…" : s;
+      lines.push(`  ${padToDisplayWidth(col, labelWidth)} │ ${display}`);
     }
     lines.push("");
   }
@@ -319,7 +296,7 @@ export function formatVerticalFull(columns: string[], rows: SqlRow[]): string[] 
     lines.push(`─── Row ${i + 1}${id ? `  [${id}]` : ""} ───`);
     for (const col of columns) {
       const s = cellString(row[col]);
-      lines.push(`  ${padTo(col, labelWidth)} │ ${s}`);
+      lines.push(`  ${padToDisplayWidth(col, labelWidth)} │ ${s}`);
     }
     lines.push("");
   }

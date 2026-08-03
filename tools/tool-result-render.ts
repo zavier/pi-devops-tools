@@ -7,7 +7,7 @@
  * pi 的 tool-execution 会自动回退到默认渲染，因此无需兜底逻辑。
  */
 
-import { Text, type Component } from "@earendil-works/pi-tui";
+import { Text, type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import {
   keyHint,
   type AgentToolResult,
@@ -28,6 +28,28 @@ function firstText(result: AgentToolResult<unknown>): string {
 }
 
 /**
+ * 多行文本组件：每行按容器宽度截断。
+ *
+ * 展开态全文是最长的渲染路径（可达 50KB），虽然 Text 自带 word wrap，
+ * 这里再逐行截断作为防线——无空白断点的长行（长值、长表名、长 SQL）
+ * 在窄容器下也可能撑出超宽行。
+ */
+class TruncatedMultiline implements Component {
+  private lines: string[];
+
+  constructor(text: string) {
+    this.lines = text.split("\n");
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const w = Math.max(1, width);
+    return this.lines.map((line) => truncateToWidth(line, w));
+  }
+}
+
+/**
  * renderResult 工厂——每个常驻工具注册时传入自己的名字，
  * 渲染器按该工具的 details 形状生成折叠态摘要。
  */
@@ -45,7 +67,7 @@ export function dbToolResultRenderer(toolName: SummarizableDbTool) {
       return new Text(theme.fg("error", firstText(result) || `${toolName} 执行失败`), 0, 0);
     }
     if (options.expanded) {
-      return new Text(theme.fg("toolOutput", firstText(result)), 0, 0);
+      return new TruncatedMultiline(theme.fg("toolOutput", firstText(result)));
     }
     const summary = summarizeDbToolResult(toolName, result.details);
     if (summary) {
