@@ -27,6 +27,8 @@ import { formatSchemaMarkdown } from "../formatting/schema-table";
 import { MutationValidationError } from "../connection/sql-policy";
 import { showMutationConfirm } from "../commands/mutate-confirm";
 import { LOADER_TOOL_NAME, LAZY_TOOL_INFO, matchDbTools } from "./db-tool-catalog";
+import { dbToolResultRenderer } from "./tool-result-render";
+import type { DbTablesDetails } from "./tool-result-summary";
 export { applyInitialToolSet } from "./db-tool-catalog";
 
 function truncate(text: string, hint = "查询范围过大，请缩小查询或添加 LIMIT。"): string {
@@ -117,6 +119,7 @@ export function registerDbTools(
         details: { matches, added },
       };
     },
+    renderResult: dbToolResultRenderer(LOADER_TOOL_NAME),
   });
 
   pi.registerTool({
@@ -175,6 +178,7 @@ export function registerDbTools(
         },
       };
     },
+    renderResult: dbToolResultRenderer("db_query"),
   });
 
   pi.registerTool({
@@ -207,16 +211,19 @@ export function registerDbTools(
       ];
 
       const targetId = params.connection ?? ws.current?.connectionId;
+      let databaseCount: number | undefined;
       if (targetId) {
         const dbs = await ws.getDatabases(targetId);
+        databaseCount = dbs.length;
         lines.push("", `${targetId} 上的数据库（${dbs.length} 个）：`, ...dbs);
       }
 
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        details: { connections: conns.map((c) => c.id), connection: targetId },
+        details: { connections: conns.map((c) => c.id), connection: targetId, databaseCount },
       };
     },
+    renderResult: dbToolResultRenderer("db_discover"),
   });
 
   pi.registerTool({
@@ -243,15 +250,15 @@ export function registerDbTools(
         database: params.database,
       });
       // 统一 details 形状——两种模式仅设置不同字段。
-      const details: {
-        connection: string;
-        database: string;
-        table?: string;
-        tables?: string[];
-      } = { connection: target.connectionId, database: target.database };
+      const details: DbTablesDetails = {
+        connection: target.connectionId,
+        database: target.database,
+      };
       if (params.table) {
         const { columns, indexes } = await ws.getTableSchema(params.table, target);
         details.table = params.table;
+        details.columnCount = columns.length;
+        details.indexCount = indexes.length;
         return {
           content: [
             {
@@ -278,6 +285,7 @@ export function registerDbTools(
         details,
       };
     },
+    renderResult: dbToolResultRenderer("db_tables"),
   });
 
   pi.registerTool({
