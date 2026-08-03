@@ -8,8 +8,9 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import { Container, Text, Spacer, matchesKey, Key } from "@earendil-works/pi-tui";
+import { Container, Text, Spacer, matchesKey, Key, visibleWidth } from "@earendil-works/pi-tui";
 import type { MutationApprovalRequest } from "../state/workspace";
+import { padToDisplayWidth, truncateToDisplayWidth } from "../formatting/display-width";
 
 type StyleColor = "success" | "warning" | "error";
 
@@ -83,14 +84,15 @@ export async function showMutationConfirm(
         ),
       );
 
-      // SQL 内容
+      // SQL 内容——按显示宽度截断/补齐（中文/emoji 占 2 列，
+      // 按码元 slice/padEnd 会让中文 SQL 行超宽）。
       for (const line of sqlLines) {
         const trimmed = line.trim();
         const maxContent = boxInnerWidth - 2;
         const display =
-          trimmed.length > maxContent
-            ? trimmed.slice(0, maxContent - 1) + "…"
-            : trimmed.padEnd(maxContent);
+          visibleWidth(trimmed) > maxContent
+            ? truncateToDisplayWidth(trimmed, maxContent - 1) + "…"
+            : padToDisplayWidth(trimmed, maxContent);
         container.addChild(
           new Text(
             `${theme.fg(style.color, "  │ ")}${display}${theme.fg(style.color, " │")}`,

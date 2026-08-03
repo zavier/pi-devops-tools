@@ -21,7 +21,7 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import { Box, Key, matchesKey, Text } from "@earendil-works/pi-tui";
+import { Box, Key, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { formatTableDisplay } from "../formatting/result-table";
 import type { RelatedTuiData } from "./renderers";
 
@@ -232,22 +232,35 @@ export async function openRelatedBrowser(
         const maxScroll = Math.max(0, content.table.length - viewport);
         scroll = Math.min(scroll, maxScroll);
 
+        // 所有行都用 truncateToWidth 截断到内容宽度——长表名/长路径/窄终端
+        // 下 Text 不会自动截断，超宽行会触发 TUI 的宽度断言崩溃。
         titleText.setText(
-          theme.fg("accent", theme.bold("📎 关联表浏览器")) +
-            theme.fg("dim", ` — ${content.title}`),
+          truncateToWidth(
+            theme.fg("accent", theme.bold("📎 关联表浏览器")) +
+              theme.fg("dim", ` — ${content.title}`),
+            contentWidth,
+          ),
         );
 
         tabsText.setText(
-          content.tabs
-            .map((t) =>
-              t.active
-                ? theme.fg("accent", theme.bold(`▶ ${t.label}`))
-                : theme.fg("dim", `   ${t.label}`),
-            )
-            .join("  "),
+          truncateToWidth(
+            content.tabs
+              .map((t) =>
+                t.active
+                  ? theme.fg("accent", theme.bold(`▶ ${t.label}`))
+                  : theme.fg("dim", `   ${t.label}`),
+              )
+              .join("  "),
+            contentWidth,
+          ),
         );
 
-        pathText.setText(content.path ? theme.fg("muted", `路径：${content.path}`) : " ");
+        pathText.setText(
+          truncateToWidth(
+            content.path ? theme.fg("muted", `路径：${content.path}`) : " ",
+            contentWidth,
+          ),
+        );
 
         separatorText.setText(theme.fg("dim", "─".repeat(Math.max(10, contentWidth))));
 
@@ -259,13 +272,16 @@ export async function openRelatedBrowser(
           tableText.setText(
             content.table
               .slice(scroll, scroll + viewport)
-              .map((line) => theme.fg("text", line))
+              .map((line) => truncateToWidth(theme.fg("text", line), contentWidth))
               .join("\n"),
           );
         }
 
         footerText.setText(
-          theme.fg("dim", formatBrowserFooter(scroll, viewport, content.table.length)),
+          truncateToWidth(
+            theme.fg("dim", formatBrowserFooter(scroll, viewport, content.table.length)),
+            contentWidth,
+          ),
         );
       };
 

@@ -2,6 +2,7 @@
  * formatting/result-table.ts 的测试——纯函数，无依赖。
  */
 import { describe, it, expect } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   analyzeColumns,
   layoutColumns,
@@ -329,5 +330,82 @@ describe("formatTableDisplay", () => {
     const result = formatTableDisplay({ columns: cols, rows }, 55);
     // 12 列单行放不下横向 → 转置。格式化器不应崩溃。
     expect(result).not.toBe("（空结果）");
+  });
+
+  it("窄宽度下所有行不超过给定宽度（回归：超宽行触发 TUI 断言崩溃）", () => {
+    // 长列名 + 10 行的宽表：横向放不下 → 转置。修复前 cellWidth 下限 4，
+    // 窄宽度（40/55）下总行宽超出 width。
+    const cols = [
+      "very_long_column_name_a",
+      "very_long_column_name_b",
+      "very_long_column_name_c",
+      "very_long_column_name_d",
+    ];
+    const rows = Array.from({ length: 10 }, (_, r) =>
+      Object.fromEntries(cols.map((c, i) => [c, `value_${r}_${i}`])),
+    );
+    for (const width of [40, 55, 70, 90]) {
+      const result = formatTableDisplay({ columns: cols, rows }, width);
+      for (const line of result.split("\n")) {
+        expect(visibleWidth(line), `width=${width}: ${line}`).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  it("窄宽度下纵向模式的行宽不超过给定宽度", () => {
+    // 20 列长列名 + 15 行：横向放不下（minW 钳制后仍超预算）、行数 > 10 不走转置
+    // → 纵向。修复前 valueCap 下限 20，窄宽度（40/55）下键值行超出 width。
+    const cols = Array.from({ length: 20 }, (_, i) => `very_long_column_name_${i}`);
+    const rows = Array.from({ length: 15 }, (_, r) =>
+      Object.fromEntries(cols.map((c, i) => [c, `value_${r}_${i}`])),
+    );
+    for (const width of [40, 55, 70, 90]) {
+      const result = formatTableDisplay({ columns: cols, rows }, width);
+      expect(result).toContain("─── Row");
+      for (const line of result.split("\n")) {
+        expect(visibleWidth(line), `width=${width}: ${line}`).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  it("中文长值横向表格的行宽不超过给定宽度（回归：宽字符按码元截断）", () => {
+    // 修复前 pad()/布局预算按 UTF-16 码元计算：中文显示宽度 2 倍，
+    // 截断到码元宽度后显示仍超宽 → TUI 宽度断言崩溃。
+    const cols = ["id", "description", "note"];
+    const rows = [{ id: 1, description: "产品".repeat(60), note: "备注" }];
+    for (const width of [40, 80, 120]) {
+      const result = formatTableDisplay({ columns: cols, rows }, width);
+      for (const line of result.split("\n")) {
+        expect(visibleWidth(line), `width=${width}: ${line}`).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  it("中文单元格截断后带省略号且不超预算", () => {
+    const result = formatTableDisplay(
+      { columns: ["id", "description"], rows: [{ id: 1, description: "产品".repeat(30) }] },
+      60,
+    );
+    const valueLine = result.split("\n").find((l) => l.includes("…"));
+    expect(valueLine).toBeDefined();
+    expect(visibleWidth(valueLine!)).toBeLessThanOrEqual(60);
+  });
+
+  it("中文列名表格的行宽不超过给定宽度", () => {
+    // 列名本身是中文（占 2 列）：colNameWidth/布局按显示宽度计算，
+    // 修复前 padEnd 按码元补齐导致行超宽。40 宽走转置、60/80 宽
+    // 走横向（按比例压缩后 minW>=2 且总宽 ≤ width）——两种布局都不得超宽。
+    const cols = Array.from({ length: 10 }, (_, i) => `字段名称${i}`);
+    const rows = Array.from({ length: 3 }, (_, r) =>
+      Object.fromEntries(cols.map((c, i) => [c, `值${r}${i}`])),
+    );
+    for (const width of [40, 60, 80]) {
+      const result = formatTableDisplay({ columns: cols, rows }, width);
+      for (const line of result.split("\n")) {
+        expect(visibleWidth(line), `width=${width}: ${line}`).toBeLessThanOrEqual(width);
+        // 表格行是纯文本契约——截断不得注入 ANSI
+        expect(line, `width=${width} 不应含 ANSI`).not.toContain("\x1b");
+      }
+    }
   });
 });

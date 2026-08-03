@@ -9,6 +9,8 @@
  */
 
 import type { SqlRow } from "../types";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { padToDisplayWidth, truncateToDisplayWidth } from "./display-width";
 
 // ====== 类型 ======
 
@@ -88,7 +90,7 @@ function hiddenNote(stats: ColumnStats, maxWidth = 160): string {
 }
 
 function trimToWidth(s: string, max: number): string {
-  return s.length > max ? s.slice(0, Math.max(0, max - 1)) + "…" : s;
+  return truncateToDisplayWidth(s, max);
 }
 
 // ====== 自适应列宽打包 ======
@@ -136,9 +138,14 @@ export function layoutColumns(idealWidths: number[], budget: number): number[] {
 
 // ====== 单元格辅助 ======
 
+/**
+ * 单元格截断/补齐到显示宽度 w。
+ *
+ * 不能用 UTF-16 码元长度（s.length）：中文/emoji 单元格按码元截断
+ * 后显示宽度仍可能超出预算，行宽超出 width 会触发 TUI 断言崩溃。
+ */
 function pad(s: string, w: number): string {
-  if (s.length > w) return s.slice(0, Math.max(0, w - 1)) + "…";
-  return s.padEnd(w);
+  return visibleWidth(s) > w ? truncateToDisplayWidth(s, w - 1) + "…" : padToDisplayWidth(s, w);
 }
 
 function cellString(val: unknown): string {
@@ -201,15 +208,17 @@ function formatTransposed(
     return label.length > 22 ? label.slice(0, 19) + "…" : label;
   });
 
-  // 自适应列名宽度（上限 24）
-  const colNameWidth = Math.min(24, Math.max(...cols.map((c) => c.length)));
-  // 单元格宽度：计入行表头之间的所有 “ │ ” 分隔符
+  // 自适应列名宽度（上限 24）——按显示宽度
+  const colNameWidth = Math.min(24, Math.max(...cols.map((c) => visibleWidth(c))));
+  // 单元格宽度：计入行表头之间的所有 “ │ ” 分隔符。
+  // 注意下限是 1 而不是 4——cellsBudget 小于每列 4 字符时若钳制到 4，
+  // 总行宽会超出 width，触发 TUI 的超宽行断言崩溃。
   const LEFT_OVERHEAD = 5; // "  " + " │ " before the first cell
   const BETWEEN_OVERHEAD = 3 * (rowHeaders.length - 1); // " │ " between cells
   const cellsBudget = Math.max(0, width - colNameWidth - LEFT_OVERHEAD - BETWEEN_OVERHEAD);
   const cellWidth =
     rowHeaders.length > 0
-      ? Math.min(40, Math.max(4, Math.floor(cellsBudget / rowHeaders.length)))
+      ? Math.min(40, Math.max(1, Math.floor(cellsBudget / rowHeaders.length)))
       : 40;
 
   const lines: string[] = [];
@@ -229,7 +238,7 @@ function formatTransposed(
   // 每列一行
   for (const col of cols) {
     const vals = displayRows.map((row) => pad(cellString(row[col]), cellWidth));
-    lines.push("  " + col.padEnd(colNameWidth) + " │ " + vals.join(" │ "));
+    lines.push("  " + padToDisplayWidth(col, colNameWidth) + " │ " + vals.join(" │ "));
   }
 
   lines.push("");
@@ -251,10 +260,11 @@ function formatVertical(
 ): string {
   const MAX_DISPLAY = 5;
   const displayRows = rows.slice(0, MAX_DISPLAY);
-  const labelWidth = Math.min(28, Math.max(...cols.map((c) => c.length)));
-  // 将单元格值截断到标签与分隔符之后能容纳的长度
+  const labelWidth = Math.min(28, Math.max(...cols.map((c) => visibleWidth(c))));
+  // 将单元格值截断到标签与分隔符之后能容纳的长度。
+  // 下限 1 而不是 20——宽度不够时若钳制到 20，行宽会超出 width。
   const VALUE_OVERHEAD = 7; // "  " + " │ "  (2 leading + 3 separator + 2 padding)
-  const valueCap = Math.max(20, Math.min(60, width - labelWidth - VALUE_OVERHEAD));
+  const valueCap = Math.max(1, Math.min(60, width - labelWidth - VALUE_OVERHEAD));
   const lines: string[] = [];
   for (let i = 0; i < displayRows.length; i++) {
     const row = displayRows[i];
@@ -262,8 +272,9 @@ function formatVertical(
     lines.push(`─── Row ${i + 1}${id ? `  [${id}]` : ""} ───`);
     for (const col of cols) {
       const s = cellString(row[col]);
-      const display = s.length > valueCap ? s.slice(0, Math.max(0, valueCap - 1)) + "…" : s;
-      lines.push(`  ${col.padEnd(labelWidth)} │ ${display}`);
+      const display =
+        visibleWidth(s) > valueCap ? truncateToDisplayWidth(s, valueCap - 1) + "…" : s;
+      lines.push(`  ${padToDisplayWidth(col, labelWidth)} │ ${display}`);
     }
     lines.push("");
   }
@@ -276,7 +287,7 @@ function formatVertical(
 // ====== 纵向完整（展开模式——不截断，全部行）======
 
 export function formatVerticalFull(columns: string[], rows: SqlRow[]): string[] {
-  const labelWidth = Math.min(28, Math.max(...columns.map((c) => c.length)));
+  const labelWidth = Math.min(28, Math.max(...columns.map((c) => visibleWidth(c))));
   const lines: string[] = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -285,7 +296,7 @@ export function formatVerticalFull(columns: string[], rows: SqlRow[]): string[] 
     lines.push(`─── Row ${i + 1}${id ? `  [${id}]` : ""} ───`);
     for (const col of columns) {
       const s = cellString(row[col]);
-      lines.push(`  ${col.padEnd(labelWidth)} │ ${s}`);
+      lines.push(`  ${padToDisplayWidth(col, labelWidth)} │ ${s}`);
     }
     lines.push("");
   }
@@ -312,13 +323,13 @@ export function formatTableDisplay(result: TableResult, width: number): string {
   const cols = allHidden ? result.columns : stats.visible;
   const totalRows = result.rows.length;
 
-  // 计算每列理想内容宽度（表头 + 首页行）
+  // 计算每列理想内容宽度（表头 + 首页行）——按显示宽度，中文/emoji 占 2 列
   const CELL_CAP = 60;
   const IDEAL_ROWS = 20;
   const ideal = cols.map((col) => {
-    let max = col.length;
+    let max = visibleWidth(col);
     for (let i = 0; i < Math.min(IDEAL_ROWS, result.rows.length); i++) {
-      const len = cellString(result.rows[i][col]).length;
+      const len = visibleWidth(cellString(result.rows[i][col]));
       max = Math.max(max, Math.min(len, CELL_CAP));
     }
     return max;
