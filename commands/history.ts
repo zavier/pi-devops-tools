@@ -16,6 +16,7 @@ import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { HistoryEntry } from "../history/store";
+import { padToDisplayWidth, truncateToDisplayWidth } from "../formatting/display-width";
 import { withLoader } from "./utils";
 import { executeAndDisplay } from "./query";
 
@@ -23,11 +24,13 @@ import { executeAndDisplay } from "./query";
 
 export function formatEntry(entry: HistoryEntry, index: number): string {
   const time = entry.createdTime.replace("T", " ").slice(5, 19); // "MM-DD HH:MM:SS"
-  const sql = entry.sql.length > 52 ? entry.sql.slice(0, 49) + "…" : entry.sql;
+  // SQL 列按显示宽度截断/补齐——中文 SQL 按码元 slice/padEnd 会让
+  // 行宽翻倍，后续列（行数/耗时）被 SelectList 截掉、列错位。
+  const sql = padToDisplayWidth(truncateToDisplayWidth(entry.sql, 52), 52);
   return [
     String(index + 1).padStart(2),
     time,
-    sql.padEnd(52),
+    sql,
     `${entry.rowCount}行`.padStart(5),
     entry.elapsed,
   ].join("  ");
@@ -98,7 +101,7 @@ export async function handleHistory(
     case "🗑 删除": {
       const ok = await ctx.ui.confirm(
         "确认删除",
-        `SQL: ${selected.sql.length > 60 ? selected.sql.slice(0, 57) + "…" : selected.sql}`,
+        `SQL: ${truncateToDisplayWidth(selected.sql, 60)}`,
       );
       if (ok) {
         ws.deleteHistory(selected.id);
@@ -137,7 +140,7 @@ async function showHistorySelector(
     const selectList = new SelectList(items, Math.min(items.length, 12), {
       selectedPrefix: (t) => theme.fg("accent", t),
       selectedText: (t) => theme.fg("accent", theme.bold(t)),
-      description: (t) => theme.fg("dim", t.slice(0, 80)),
+      description: (t) => theme.fg("dim", truncateToDisplayWidth(t, 80)),
       scrollInfo: (t) => theme.fg("dim", t),
       noMatch: (t) => theme.fg("warning", t),
     });

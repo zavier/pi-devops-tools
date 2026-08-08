@@ -7,6 +7,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { StoredRelation } from "../types";
+import { padToDisplayWidth } from "../formatting/display-width";
 import { pickTableFuzzy, withLoader } from "./utils";
 
 // ── 列表格式化 ─────────────────────────────────────────────
@@ -66,7 +67,7 @@ async function handleRelationsList(
     const src = `${r.table}.${r.column}`;
     const ref = `${r.refTable}.${r.refColumn}`;
     const cond = r.condition ? ` [${r.condition}]` : "";
-    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relationType})${cond}`;
+    return `#${String(r.id).padStart(3)} ${padToDisplayWidth(src, 24)} → ${ref} (${r.relationType})${cond}`;
   });
 
   const choice = await ctx.ui.select("选择一个关系", labels);
@@ -175,7 +176,7 @@ async function handleRelationsRemove(
   const labels = rows.map((r) => {
     const src = `${r.table}.${r.column}`;
     const ref = `${r.refTable}.${r.refColumn}`;
-    return `#${String(r.id).padStart(3)} ${src.padEnd(24)} → ${ref} (${r.relationType})`;
+    return `#${String(r.id).padStart(3)} ${padToDisplayWidth(src, 24)} → ${ref} (${r.relationType})`;
   });
 
   const choice = await ctx.ui.select("选择要删除的关系", labels);

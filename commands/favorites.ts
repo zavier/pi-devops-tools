@@ -6,6 +6,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import type { FavoriteEntry } from "../history/store";
 import { READONLY_SQL_RE } from "../connection/sql-policy";
+import { padToDisplayWidth, truncateToDisplayWidth } from "../formatting/display-width";
 import { executeAndDisplay } from "./query";
 
 // ── 列表格式化 ─────────────────────────────────────────────
@@ -21,10 +22,13 @@ export function formatFavoriteList(entries: FavoriteEntry[], currentDb?: string)
   const lines = [`═══ 收藏查询 ${scope} — ${entries.length} 条 ═══`, ""];
 
   for (const e of entries) {
-    const sql = e.sql.length > 55 ? e.sql.slice(0, 52) + "..." : e.sql;
+    // 名称/库标签/SQL 都按显示宽度对齐——中文名按码元 padEnd 会列错位
+    const sql = truncateToDisplayWidth(e.sql, 55);
     const dbTag = e.database ? `[${e.database}]` : "[🌐 全局]";
-    const desc = e.description ? ` — ${e.description.slice(0, 30)}` : "";
-    lines.push(`  #${String(e.id).padStart(3)} ${e.name.padEnd(18)}${dbTag.padEnd(14)}${sql}`);
+    const desc = e.description ? ` — ${truncateToDisplayWidth(e.description, 30)}` : "";
+    lines.push(
+      `  #${String(e.id).padStart(3)} ${padToDisplayWidth(e.name, 18)}${padToDisplayWidth(dbTag, 14)}${sql}`,
+    );
     if (desc) lines.push(`       ${desc}`);
   }
 
@@ -112,8 +116,8 @@ async function handleFavoriteList(
   }
 
   const labels = entries.map((e) => {
-    const sql = e.sql.length > 40 ? e.sql.slice(0, 37) + "..." : e.sql.padEnd(40);
-    return `#${String(e.id).padStart(3)} ${e.name.padEnd(18)} ${sql}`;
+    const sql = padToDisplayWidth(truncateToDisplayWidth(e.sql, 40), 40);
+    return `#${String(e.id).padStart(3)} ${padToDisplayWidth(e.name, 18)} ${sql}`;
   });
 
   const choice = await ctx.ui.select("选择一个收藏", labels);

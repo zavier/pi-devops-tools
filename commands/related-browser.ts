@@ -195,7 +195,9 @@ export async function openRelatedBrowser(
     (tui, theme, _kb, done) => {
       const nav = createBrowserNav(cache.related.length);
       let scroll = 0;
-      /** 最近一次渲染的 overlay 宽度——build 用它计算表格布局宽度。 */
+      /** 最近一次渲染的 overlay 宽度——build 用它计算表格布局宽度。
+       *  初始 80 只是占位：首帧 render(w) 拿到真实宽度后会触发重建，
+       *  否则窄终端下首屏按过期宽度截断的表格行会被 Text 折行。 */
       let lastWidth = 80;
 
       // Box 提供不透明背景（selectedBg：两主题下均为中性蓝灰，
@@ -289,7 +291,12 @@ export async function openRelatedBrowser(
 
       return {
         render: (w) => {
-          lastWidth = w;
+          // 宽度变化（含首帧拿到真实 overlay 宽度）时重建内容——
+          // build 内的表格布局与截断宽度都依赖 lastWidth
+          if (w !== lastWidth) {
+            lastWidth = w;
+            build();
+          }
           return box.render(w);
         },
         invalidate: () => {
