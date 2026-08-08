@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { sanitizeRows } from "../commands/query";
 import { formatRelationsList } from "../commands/relations";
 import { formatFavoriteList } from "../commands/favorites";
@@ -114,8 +115,17 @@ describe("formatFavoriteList", () => {
   it("truncates long sql and appends description line", () => {
     const longSql = "SELECT * FROM " + "x".repeat(100);
     const out = formatFavoriteList([fav({ sql: longSql, description: "很长的一段说明" })]);
-    expect(out).toContain("...");
+    expect(out).toContain("…");
     expect(out).toContain("很长的一段说明");
+  });
+
+  it("中文收藏名与中文 SQL 按显示宽度对齐（不按码元）", () => {
+    // 中文名 "最近订单" 显示宽 8 列——若按码元 padEnd(18) 只补到 10 列，
+    // dbTag 起点会比 ASCII 名提前 8 列，列错位。
+    const out = formatFavoriteList([fav({}), fav({ id: 2, name: "orders", database: "" })]);
+    const lines = out.split("\n").filter((l) => l.startsWith("  #"));
+    const tagStarts = lines.map((l) => visibleWidth(l.slice(0, l.indexOf("["))));
+    expect(new Set(tagStarts).size).toBe(1);
   });
 });
 
@@ -145,6 +155,20 @@ describe("formatEntry / entryToItem", () => {
     const long: HistoryEntry = { ...entry, sql: "SELECT * FROM " + "y".repeat(100) };
     expect(formatEntry(long, 8)).toMatch(/^ ?9 /); // index 9 = 8+1, padStart(2)
     expect(formatEntry(long, 8)).toContain("…");
+  });
+
+  it("中文 SQL 按显示宽度截断/补齐——整行宽度与 ASCII 行一致", () => {
+    const cjk: HistoryEntry = {
+      ...entry,
+      sql: "SELECT * FROM 产品表 WHERE 产品名称 LIKE '%智能音箱%' AND 状态='在售' ORDER BY 创建时间 DESC",
+    };
+    const out = formatEntry(cjk, 0);
+    // SQL 列固定 52 显示列：按码元 slice/padEnd 会撑到 ~104 列，
+    // 挤掉右侧的行数/耗时列（SelectList 按宽度截断后丢失）。
+    expect(out).toContain("…");
+    expect(out).toContain("100行");
+    expect(out).toContain("0.010s");
+    expect(visibleWidth(out)).toBe(visibleWidth(formatEntry(entry, 0)));
   });
 
   it("converts to a SelectItem keyed by id", () => {
