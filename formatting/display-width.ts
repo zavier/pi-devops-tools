@@ -33,3 +33,29 @@ export function truncateToDisplayWidth(s: string, max: number): string {
 export function padToDisplayWidth(s: string, w: number): string {
   return s + " ".repeat(Math.max(0, w - visibleWidth(s)));
 }
+
+/**
+ * 纯文本按显示宽度软换行——超宽行切成多段，每段 ≤ w 列。
+ *
+ * 按码点迭代（for..of），不会劈开代理对（emoji）；宽字符在
+ * 行尾放不下时挪到下一行。单个字符比 w 还宽时原样放出（调用方
+ * 的宽度预算退化为 0 的兜底）。空字符串返回 [""]。
+ */
+export function wrapToDisplayWidth(s: string, w: number): string[] {
+  if (w < 1) return [s];
+  const lines: string[] = [];
+  let cur = "";
+  let curW = 0;
+  for (const ch of s) {
+    const cw = visibleWidth(ch);
+    if (curW + cw > w && cur !== "") {
+      lines.push(cur);
+      cur = "";
+      curW = 0;
+    }
+    cur += ch;
+    curW += cw;
+  }
+  lines.push(cur);
+  return lines;
+}
