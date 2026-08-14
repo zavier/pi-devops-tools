@@ -36,7 +36,7 @@ describe("formatSchemaMarkdown", () => {
     expect(out).toContain("| 列 | 类型 | Null | Key | 默认 | Extra | 注释 |");
     expect(out).toContain("| id | bigint(20) |  | PK |  | auto_increment |  |");
     expect(out).toContain("| user_id | bigint(20) | YES | FK |  |  | 下单用户 |");
-    expect(out).toContain("**索引（2）**");
+    expect(out).toContain("索引（2）");
     expect(out).toContain("- `PRIMARY` [UNIQUE]: id");
     expect(out).toContain("- `idx_user`: user_id");
   });

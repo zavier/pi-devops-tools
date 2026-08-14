@@ -40,7 +40,8 @@ export function formatSchemaMarkdown(
     );
   }
 
-  lines.push("", `**索引（${indexes.length}）**`, "");
+  // 索引标题不加粗：`**` 在 db_tables 工具结果展开态会以字面量显示在终端。
+  lines.push("", `索引（${indexes.length}）`, "");
   for (const idx of indexes) {
     lines.push(`- \`${idx.name}\`${idx.unique ? " [UNIQUE]" : ""}: ${idx.columns.join(", ")}`);
   }
