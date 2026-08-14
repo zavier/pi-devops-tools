@@ -46,9 +46,9 @@ describe("renderQueryDocument (llm-zh)", () => {
     const text = textOf(renderQueryDocument(doc(), { audience: "llm-zh" }));
 
     expect(text).toContain("## 数据库查询结果");
-    expect(text).toContain("**数据库**：shop");
-    expect(text).toContain("**SQL**：SELECT * FROM users");
-    expect(text).toContain("**行数**：2（0.010s）");
+    expect(text).toContain("数据库：shop");
+    expect(text).toContain("SQL：SELECT * FROM users");
+    expect(text).toContain("行数：2（0.010s）");
     expect(text).toContain("| id | name |");
     expect(text).toContain("alice");
   });
@@ -57,8 +57,8 @@ describe("renderQueryDocument (llm-zh)", () => {
     const lines = renderQueryDocument(doc({ connectionId: "main" }), { audience: "llm-zh" });
     const text = textOf(lines);
 
-    expect(text).toContain("**连接**：main");
-    expect(text.indexOf("**连接**")).toBeLessThan(text.indexOf("**数据库**"));
+    expect(text).toContain("连接：main");
+    expect(text.indexOf("连接：main")).toBeLessThan(text.indexOf("数据库："));
   });
 
   it("空结果输出（空结果）占位", () => {

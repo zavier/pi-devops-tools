@@ -133,12 +133,14 @@ function relatedSummary(related: RelatedResult[]): string {
 // ====== LLM 上下文（中文 markdown，/db query 消息与 db_query 工具共用）======
 
 function renderLlm(doc: QueryResultDoc): DocLine[] {
+  // 元数据标签不加粗：`**` 在工具结果展开态（tool-result-render 的
+  // TruncatedMultiline 原文渲染）会以字面量显示在终端，且对 LLM 无信息量。
   const lines: DocLine[] = [{ text: "## 数据库查询结果" }, { text: "" }];
-  if (doc.connectionId) lines.push({ text: `**连接**：${doc.connectionId}` });
+  if (doc.connectionId) lines.push({ text: `连接：${doc.connectionId}` });
   lines.push(
-    { text: `**数据库**：${doc.database}` },
-    { text: `**SQL**：${doc.sql}` },
-    { text: `**行数**：${doc.rowCount}（${doc.elapsed}）` },
+    { text: `数据库：${doc.database}` },
+    { text: `SQL：${doc.sql}` },
+    { text: `行数：${doc.rowCount}（${doc.elapsed}）` },
     { text: "" },
   );
 
