@@ -21,7 +21,7 @@ import { handleHistory } from "./history";
 import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
 import { RelatedBrowserCacheStore, openRelatedBrowser } from "./related-browser";
-import { sendDbStatus } from "./llm-context";
+import type { DbStatusNotifier } from "./llm-context";
 import { writeToggle } from "../state/extension-toggle";
 
 // ====== 自动补全项类型（结构上匹配 pi-tui AutocompleteItem）======
@@ -53,6 +53,7 @@ export function registerDbCommand(
   getWorkspace: () => DatabaseWorkspaceService,
   enabled: boolean,
   toggleBaseDir: string,
+  statusNotifier: DbStatusNotifier,
 ): void {
   // 禁用态：只注册精简版 /db——唯一入口是 on（重新启用）。
   // 命令不进模型上下文，零成本；不初始化 workspace（on 分支不需要）。
@@ -97,15 +98,16 @@ export function registerDbCommand(
 
       switch (sub) {
         case undefined: {
-          // 在展示交互式仪表盘之前发送静默 LLM 上下文
-          sendDbStatus(pi, ws);
+          // 面板打开时按需刷新 LLM 上下文（状态未变则不重复注入）。
+          // 未选择数据库时零注入：面板里的状态行只展示给用户。
+          statusNotifier.notifyIfChanged();
           const action = await showDashboard(ctx, ws);
           if (!action) return;
-          await dispatchAction(action, ctx, ws, pi, rest, relatedCache);
+          await dispatchAction(action, ctx, ws, pi, rest, relatedCache, statusNotifier);
           break;
         }
         case "switch":
-          await handleSwitch(ctx, ws, pi);
+          await handleSwitch(ctx, ws, statusNotifier);
           break;
         case "add":
           await handleAdd(ctx, ws);
@@ -340,10 +342,11 @@ async function dispatchAction(
   pi: ExtensionAPI,
   rest: string[],
   relatedCache: RelatedBrowserCacheStore,
+  statusNotifier: DbStatusNotifier,
 ): Promise<void> {
   switch (action) {
     case "switch":
-      await handleSwitch(ctx, ws, pi);
+      await handleSwitch(ctx, ws, statusNotifier);
       break;
     case "add":
       await handleAdd(ctx, ws);

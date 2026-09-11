@@ -230,11 +230,11 @@ ws.executeMutationWithApproval(sql, opts, confirm)   ← facade 唯一写入口
 
 所有数据在 `~/.pi/database/` 下：
 
-| 文件               | 格式         | 内容                                                          |
-| ------------------ | ------------ | ------------------------------------------------------------- |
-| `workspace.json`   | JSON         | 当前选择的环境/连接/数据库                                    |
-| `connections.yaml` | YAML         | 用户配置的数据库连接（支持 `${ENV}` 替换）                    |
-| `state.db`         | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations` |
+| 文件               | 格式         | 内容                                                                            |
+| ------------------ | ------------ | ------------------------------------------------------------------------------- |
+| `workspaces.json`  | JSON         | 按项目（cwd）键控的环境/连接/数据库选择（旧 `workspace.json` 归档为 `.legacy`） |
+| `connections.yaml` | YAML         | 用户配置的数据库连接（支持 `${ENV}` 替换）                                      |
+| `state.db`         | SQLite (WAL) | 三张表：`query_history`、`query_favorites`、`table_relations`                   |
 
 ## 四、关键设计决策
 

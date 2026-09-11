@@ -7,7 +7,8 @@ import { readToggle } from "./state/extension-toggle";
 import { registerDbCommand, restoreStatusBar } from "./commands/db";
 import { registerRenderers } from "./commands/renderers";
 import { registerDbTools, applyInitialToolSet } from "./tools/db-tools";
-import { sendDbStatus } from "./commands/llm-context";
+import { createDbStatusNotifier } from "./commands/llm-context";
+import { normalizeScopeKey } from "./state/workspace-store";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
 
@@ -20,11 +21,19 @@ export default function (pi: ExtensionAPI) {
   // 懒初始化：扩展工厂可能运行在从不启动会话的调用中
   // （print 模式、--list-models 等）。将打开 SQLite 和读取
   // connections.yaml 推迟到第一次命令/工具调用或 session_start。
+  //
+  // 项目级隔离：首次创建时用会话 cwd 定持久化键，选择不再跨项目携带
+  // （见 docs/workspace-scope-and-status-noise.md）。
   let workspace: DatabaseWorkspaceService | null = null;
-  const getWorkspace = (): DatabaseWorkspaceService => {
-    workspace ??= new DatabaseWorkspaceService();
+  const getWorkspace = (scopeKey?: string): DatabaseWorkspaceService => {
+    workspace ??= new DatabaseWorkspaceService(undefined, undefined, {
+      scopeKey: scopeKey ?? normalizeScopeKey(process.cwd()),
+    });
     return workspace;
   };
+
+  // 会话级注入器：同一状态每会话只告知模型一次；未选择时不注入。
+  const statusNotifier = createDbStatusNotifier(pi, getWorkspace);
 
   if (enabled) {
     // 自定义消息渲染器（紧凑查询结果、纯文本面板）
@@ -37,7 +46,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   // 注册 /db 命令（禁用态为精简版，仅响应 on）
-  registerDbCommand(pi, getWorkspace, enabled, DEFAULT_BASE);
+  registerDbCommand(pi, getWorkspace, enabled, DEFAULT_BASE, statusNotifier);
 
   // 注册内置 skills，使其随扩展被发现。禁用时返回空——skill 以 XML 块进
   // 系统提示词，连带禁用以保持零上下文。
@@ -54,11 +63,12 @@ export default function (pi: ExtensionAPI) {
     // （db_discover, db_list_relations, db_relation）经 db_tools loader
     // 按需启用，保持 system prompt 精简。
     applyInitialToolSet(pi);
-    const ws = getWorkspace();
+    // 用会话 cwd 定键（/resume 可能进入另一个项目目录，进程 cwd 不一定一致）。
+    const ws = getWorkspace(normalizeScopeKey(ctx.cwd));
     restoreStatusBar(ws, ctx);
-    // 恢复会话时告知 LLM 当前激活的数据库，
-    // 避免它通过一次失败的调用去发现。
-    sendDbStatus(pi, ws);
+    // 告知 LLM 当前激活的数据库，避免它通过一次失败的调用去发现。
+    // 未选择数据库时不注入任何内容。
+    statusNotifier.notifyIfChanged();
   });
 
   // 关闭时清理

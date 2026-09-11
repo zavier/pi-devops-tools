@@ -37,6 +37,14 @@ export class StateStore {
   }
 
   get workspaceFile(): string {
+    return join(this.baseDir, "workspaces.json");
+  }
+
+  /**
+   * 旧版全局选择文件（0.9.x 及以前）。只作为迁移源读取一次，
+   * 之后由 archiveLegacyWorkspace 改名为 .legacy 留档。
+   */
+  get legacyWorkspaceFile(): string {
     return join(this.baseDir, "workspace.json");
   }
 

@@ -2,17 +2,17 @@
  * /db switch —— 环境 → 连接 → 数据库选择。
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 import { withLoader } from "./utils";
-import { sendActiveDb } from "./llm-context";
+import type { DbStatusNotifier } from "./llm-context";
 
 export const STATUS_KEY = "db-workspace";
 
 export async function handleSwitch(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
-  pi: ExtensionAPI,
+  notifier: DbStatusNotifier,
 ): Promise<void> {
   // 如果尚未加载任何连接（例如 AI 刚创建了配置文件），
   // 从磁盘热重载，用户无需 /reload。
@@ -95,9 +95,9 @@ export async function handleSwitch(
   ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
   ctx.ui.setWidget(STATUS_KEY, [`🗄 ${env}/${database}  @${connectionId}`]);
 
-  // 告知 LLM 当前激活的数据库，避免它猜测。
+  // 告知 LLM 当前激活的数据库（未选择时不注入；状态未变不重复注入）。
   // display: false 避免冗余消息污染聊天。
-  sendActiveDb(pi, ws);
+  notifier.notifyIfChanged();
 
   ctx.ui.notify(`已连接：${env}/${database} @ ${connectionId}`, "info");
 }

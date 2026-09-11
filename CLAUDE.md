@@ -31,16 +31,17 @@ npx tsc --noEmit      # 类型检查（无构建步骤——pi 直接加载 Type
 
 所有持久状态位于 `~/.pi/database/` 下：
 
-| 路径             | 格式   | 属主                                                                                                        |
-| ---------------- | ------ | ----------------------------------------------------------------------------------------------------------- |
-| `workspace.json` | JSON   | `WorkspaceContext` —— 当前的 env/connection/database 选择                                                   |
-| `state.db`       | SQLite | `QueryHistoryStore` + `FavoriteStore` + `RelationStore`（3 张表、1 个 DB，通过 `history.getDb()` 共享句柄） |
+| 路径              | 格式   | 属主                                                                                                                                                |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspaces.json` | JSON   | `state/workspace-store.ts` —— 按项目（规范化 cwd）键控的 env/connection/database 选择；旧全局 `workspace.json` 首次构造时归档为 `.legacy`（不播种） |
+| `state.db`        | SQLite | `QueryHistoryStore` + `FavoriteStore` + `RelationStore`（3 张表、1 个 DB，通过 `history.getDb()` 共享句柄）                                         |
 
 ### 分层结构（扁平）
 
 ```
 commands/          ← /db 子命令处理器 —— 只看到 DatabaseWorkspaceService 接口
 state/workspace.ts ← DatabaseWorkspaceService —— /db 背后唯一的深度模块
+state/workspace-store.ts ← 按项目（cwd）键控的选择持久化（纯模块，原子写 + 旧文件归档）
 state/state-store.ts ← StateStore —— 拥有 baseDir + SQLite 句柄 + 派生路径（可注入接缝）
 connection/        ← DatabaseConnectionManager（懒加载 mysql2 连接池）+ sql-policy（守卫 + LIMIT）
                      + db-config（connections.yaml 加载器，接受可选路径）
@@ -56,9 +57,10 @@ formatting/        ← formatTableResult —— 自动布局：横向 / 转置 /
 - **单一执行点**：所有读查询经过 `DatabaseConnectionManager.executeQuery`，它应用只读守卫和 LIMIT 策略（`connection/sql-policy.ts`——纯函数，`READONLY_SQL_RE` 的唯一归属），然后在检出的专用连接上执行（`getConnection → USE → query → release`），这样 USE 与查询不会散落在连接池的不同连接上。无界 SELECT 自动追加 `LIMIT n`（默认 100，connections.yaml 中可配 per-connection `queryLimit`）；最终 SQL 通过 `result.sql` 返回，用户可以看到自动追加的 LIMIT。写操作经过 `DatabaseWorkspaceService.executeMutationWithApproval`——唯一写入口，在 facade 内完成 `prepareMutationQuery`（DDL 拒绝，抛 `MutationValidationError`）→ 人工确认（注入的确认回调，生产为 `showMutationConfirm`）→ 执行。命令处理器只在分发时（表名 vs SQL）导入 `READONLY_SQL_RE`，绝不用于执行期校验。
 - **实时 schema**：`getTables()` 和 `getTableSchema()` 总是查询 `information_schema`——无缓存、无刷新。实践中足够廉价且永不过期。
 - **BFS 自动 JOIN**：`RelationGraph.bfsQuery()` 遍历内存前向图，每跳发出参数化（`IN (?)`）、schema 限定的查询。深度受限（默认 2，最大 5）。它从调用方接收 `QueryFn` 而非 mysql2 连接池——图保持数据库无关，用 stub 测试。
-- **懒加载工作空间初始化**：`DatabaseWorkspaceService` 不在扩展工厂中构造（工厂可能运行在从不启动会话的调用中，如 `--list-models` 或 print 模式）。懒 getter 将打开 SQLite / 读取配置推迟到 `session_start`、第一次 `/db` 命令或第一次工具调用。
+- **懒加载工作空间初始化**：`DatabaseWorkspaceService` 不在扩展工厂中构造（工厂可能运行在从不启动会话的调用中，如 `--list-models` 或 print 模式）。懒 getter 将打开 SQLite / 读取配置推迟到 `session_start`、第一次 `/db` 命令或第一次工具调用。首次创建时用会话 cwd（`ctx.cwd`，`process.cwd()` 兜底）定持久化键——选择按项目隔离，不跨项目携带（`docs/workspace-scope-and-status-noise.md`）。
+- **状态注入按需且去重**：只有已选中数据库时才向 LLM 注入 `db-active-db` 静默消息，且同一状态每会话只注入一次（`commands/llm-context.ts` 的 `createDbStatusNotifier`）。未配置或未选择时零注入——“没有数据库”是展示给人的 UI 状态（面板状态行/状态栏），不占用模型上下文。
 - **懒加载连接**：MySQL 连接池在首次使用时创建，按 connection ID 缓存。`destroy()` 清理所有池。`reloadConfig()` 在替换前销毁旧 manager，避免旧池泄漏。
-- **StateStore 接缝**：`DatabaseWorkspaceService(storage?)` 接受可选的 `StateStore`——生产默认 `~/.pi/database`，测试注入临时目录。`StateStore` 拥有 SQLite 句柄（三个存储 + RelationGraph 通过构造函数注入共享它），以及 workspace.json 和 connections 配置的路径辅助。
+- **StateStore 接缝**：`DatabaseWorkspaceService(storage?, manager?, opts?)` 接受可选的 `StateStore`——生产默认 `~/.pi/database`，测试注入临时目录；`opts.scopeKey` 是持久化键（规范化项目 cwd），省略即纯会话内存。`StateStore` 拥有 SQLite 句柄（三个存储 + RelationGraph 通过构造函数注入共享它），以及 `workspaces.json`（+ 旧 `workspace.json` 迁移源）和 connections 配置的路径辅助。
 
 ### LLM 工具
 

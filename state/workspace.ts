@@ -25,20 +25,30 @@ import {
 } from "../history/store";
 import { RelationGraph } from "../relation-graph";
 import type { RelatedResult, SqlRow, StoredRelation, TableSchema } from "../types";
+import {
+  archiveLegacyWorkspace,
+  loadWorkspaceRecord,
+  saveWorkspaceRecord,
+  type WorkspaceRecord,
+  type WorkspaceState,
+} from "./workspace-store";
 import { StateStore } from "./state-store";
 
 // ====== 内部类型 ======
-
-interface WorkspaceState {
-  environment: string;
-  connectionId: string;
-  database: string;
-}
 
 /** 调用的有效目标：默认工作空间选择，可逐调用覆盖。 */
 interface QueryTarget {
   connectionId: string;
   database: string;
+}
+
+/** 持久层记录 → facade 状态：丢弃 updatedAt（那是给人看的元数据，不属于工作空间状态）。 */
+function toState(record: WorkspaceRecord): WorkspaceState {
+  return {
+    environment: record.environment,
+    connectionId: record.connectionId,
+    database: record.database,
+  };
 }
 
 /** 写操作确认请求：校验结果 + 解析后的目标，由 facade 合并后交给确认回调。 */
@@ -62,33 +72,6 @@ type MutationOutcome =
       database: string;
     };
 
-// ====== 持久化辅助 ======
-
-function loadWorkspace(filePath: string): WorkspaceState | null {
-  try {
-    if (!existsSync(filePath)) return null;
-    const raw = readFileSync(filePath, "utf-8");
-    const data = JSON.parse(raw);
-    if (
-      data &&
-      typeof data.environment === "string" &&
-      typeof data.connectionId === "string" &&
-      typeof data.database === "string"
-    ) {
-      return data as WorkspaceState;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function saveWorkspace(filePath: string, state: WorkspaceState): void {
-  const dir = join(filePath, "..");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(filePath, JSON.stringify(state, null, 2));
-}
-
 // ====== 服务 ======
 
 export class DatabaseWorkspaceService {
@@ -106,14 +89,25 @@ export class DatabaseWorkspaceService {
 
   private currentState: WorkspaceState | null;
 
+  /**
+   * 持久化键（规范化项目 cwd）。null = 不持久化（纯会话内存，测试用）。
+   * 隔离粒度与迁移策略见 docs/workspace-scope-and-status-noise.md §2。
+   */
+  private scopeKey: string | null;
+
   get current(): WorkspaceState | null {
     return this.currentState;
   }
 
   // ── 构造函数 ────────────────────────────────────────────────
 
-  constructor(state?: StateStore, manager?: DatabaseConnectionManager) {
+  constructor(
+    state?: StateStore,
+    manager?: DatabaseConnectionManager,
+    opts?: { scopeKey?: string },
+  ) {
     this.store = state ?? new StateStore();
+    this.scopeKey = opts?.scopeKey ?? null;
     const result = loadConnectionsConfig(this.store.connectionsFile);
     this.connections = result.connections;
     this.configWarnings = result.warnings;
@@ -121,7 +115,14 @@ export class DatabaseWorkspaceService {
     this.history = new QueryHistoryStore(this.store.sqlite);
     this.favorites = new FavoriteStore(this.store.sqlite);
     this.relationGraph = new RelationGraph(this.store.sqlite);
-    this.currentState = loadWorkspace(this.store.workspaceFile);
+    // 旧全局选择文件不再读取：改名留档，避免把全局值播种进项目。
+    if (this.scopeKey) {
+      archiveLegacyWorkspace(this.store.legacyWorkspaceFile);
+    }
+    const record = this.scopeKey
+      ? loadWorkspaceRecord(this.store.workspaceFile, this.scopeKey)
+      : null;
+    this.currentState = record ? toState(record) : null;
   }
 
   // ── 配置重载 ────────────────────────────────────────────
@@ -242,7 +243,12 @@ export class DatabaseWorkspaceService {
 
   switchTo(environment: string, connectionId: string, database: string): void {
     this.currentState = { environment, connectionId, database };
-    saveWorkspace(this.store.workspaceFile, this.currentState);
+    if (this.scopeKey) {
+      saveWorkspaceRecord(this.store.workspaceFile, this.scopeKey, {
+        ...this.currentState,
+        updatedAt: new Date().toISOString(),
+      });
+    }
   }
 
   // ── 目标解析 ──────────────────────────────────────────────────
