@@ -5,6 +5,8 @@
 > 状态：已实施（v0.8.x）。后续演进：校验 + 人工确认已收回 facade ——
 > 现为 `DatabaseWorkspaceService.executeMutationWithApproval(sql, opts, confirm)`
 > 单一写入口（见 §2/§5 更新），工具层只做参数装配与结果整形。
+> 后续演进 2：会话级免确认开关 `/db auto-approve on` —— 确认回调在用户显式开启的
+> 会话内被短路（默认关闭、纯内存、随会话复位），见 [session-auto-approve.md](./session-auto-approve.md)。
 
 ## 目录
 
@@ -26,7 +28,7 @@
 ### 1.1 核心能力
 
 - AI 可以发起数据修改（INSERT / UPDATE / DELETE / REPLACE）
-- **绝不自动执行** — 所有写操作必须经人工在 TUI 中确认
+- **默认绝不自动执行** — 所有写操作默认必须经人工在 TUI 中确认；唯一例外是用户（或驱动 UI 的自动化）显式开启的会话级开关 `/db auto-approve on`（二次确认、纯内存、随会话复位，模型无法自行开启；见 [session-auto-approve.md](./session-auto-approve.md)）
 - 确认界面清晰展示：要执行的 SQL、目标数据库、操作类型
 - 确认后立即执行并返回结果给 AI
 - 拒绝后告知 AI "用户拒绝了该操作"
@@ -54,7 +56,8 @@ LLM 调用 db_mutate(sql)
         │
         ▼
 tools/db-tools.ts  ──►  ws.executeMutationWithApproval(sql, opts, confirm)
-        │                     └─ confirm = (req) => showMutationConfirm(ctx, req)
+        │                     └─ confirm：会话免确认开启 → 直接放行（结果标注免确认）
+        │                                否则 → showMutationConfirm(ctx, req)
         ▼
 state/workspace.ts（facade —— 仪式唯一归属）
         │
@@ -674,7 +677,7 @@ AI 修复 SQL 后重试
 
 ### 10.3 不做的事
 
-- **不提供 `--force` / 跳过确认**：永远需要人工确认，这是核心安全保证
+- **不提供 `--force` 式单次绕过**：确认门默认永远打开，只提供**会话级**的显式 opt-in（`/db auto-approve on`：二次确认、纯内存、`session_start` 复位、模型无法自行开启）。headless（`-p` / `--mode json`）通道保持 fail-closed，如未来需要，另提供进程级连接白名单 flag
 - **不缓存用户决定**：每次 `db_mutate` 调用都弹出确认（即使相邻两次调用）
 - **不估算影响行数**：v1 不做 EXPLAIN / dry-run（MySQL 的 EXPLAIN 对 DML 无实际行数估计）。未来可加
 - **不支持批量多条 SQL**：一个 `db_mutate` 调用只接受一条 SQL，多条需多次调用（每次独立确认）
@@ -686,3 +689,4 @@ AI 修复 SQL 后重试
 - **审计日志**：记录所有通过 `db_mutate` 执行的操作
 - **权限分级**：INSERT 可配置为无需确认（低风险），而 DELETE 始终需确认
 - **影响行数上限**：超过 N 行时额外警告
+- **自动化进程级授权**：headless（`-p` / `--mode json`）通道如需免确认，提供 `--db-auto-approve=<连接白名单>` 形式的进程级 flag（默认关闭、随进程结束失效）

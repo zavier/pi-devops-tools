@@ -21,6 +21,7 @@ import {
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { DatabaseWorkspaceService } from "../state/workspace";
+import type { SessionAutoApprove } from "../state/mutation-approval";
 import type { QueryResultDoc } from "../formatting/result-document";
 import { renderQueryDocument } from "../formatting/result-document";
 import { formatSchemaMarkdown } from "../formatting/schema-table";
@@ -60,6 +61,7 @@ const targetParams = {
 export function registerDbTools(
   pi: ExtensionAPI,
   getWorkspace: () => DatabaseWorkspaceService,
+  autoApprove: SessionAutoApprove,
 ): void {
   // ── Loader：按需启用懒加载工具 ────────────────────────────
   pi.registerTool({
@@ -350,13 +352,19 @@ export function registerDbTools(
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const ws = getWorkspace();
       try {
+        // 会话开关打开时直接放行（结果中标注免确认）；否则走人工确认弹窗。
+        let autoApproved = false;
         const outcome = await ws.executeMutationWithApproval(
           params.sql,
           {
             connectionId: params.connection,
             database: params.database,
           },
-          (req) => showMutationConfirm(ctx, req),
+          (req) => {
+            if (!autoApprove.enabled) return showMutationConfirm(ctx, req);
+            autoApproved = true;
+            return Promise.resolve(true);
+          },
         );
 
         // 用户拒绝是正常结果——非 isError，回显被拒语句。
@@ -372,7 +380,9 @@ export function registerDbTools(
             {
               type: "text",
               text: [
-                `✅ 变更执行成功。`,
+                autoApproved
+                  ? `✅ 变更执行成功（免人工确认：本会话已开启变更免确认）。`
+                  : `✅ 变更执行成功。`,
                 `连接：${outcome.connectionId}`,
                 `数据库：${outcome.database}`,
                 `SQL：${outcome.sql}`,
@@ -386,6 +396,7 @@ export function registerDbTools(
             elapsed: outcome.elapsed,
             connection: outcome.connectionId,
             database: outcome.database,
+            ...(autoApproved ? { autoApproved: true, approvalSource: "session" } : {}),
           },
         };
       } catch (err: any) {

@@ -23,6 +23,14 @@ describe("getCompletions (/db 参数补全)", () => {
     expect(result?.map((c) => c.label)).toEqual(["add"]);
   });
 
+  it("completes 'auto-approve' and its on/off arguments", async () => {
+    const subs = await getCompletions("auto", stubWs());
+    expect(subs?.map((c) => c.value)).toContain("auto-approve ");
+
+    const args = await getCompletions("auto-approve ", stubWs());
+    expect(args?.map((c) => c.label).sort()).toEqual(["off", "on"]);
+  });
+
   it("handles trailing space after 'relations' (Tab-completed state)", async () => {
     const result = await getCompletions("relations ", stubWs());
     expect(result?.length).toBe(3);

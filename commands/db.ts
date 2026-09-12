@@ -4,15 +4,11 @@
  * 轻量路由器：委托给各子命令处理器模块。
  */
 
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import type { DatabaseWorkspaceService } from "../state/workspace";
-import { STATUS_KEY, handleSwitch } from "./switch";
+import { handleSwitch } from "./switch";
 import { handleAdd } from "./add";
 import { handleTables } from "./tables";
 import { handleSchema } from "./schema";
@@ -22,6 +18,8 @@ import { handleFavorite } from "./favorites";
 import { handleRelations } from "./relations";
 import { RelatedBrowserCacheStore, openRelatedBrowser } from "./related-browser";
 import type { DbStatusNotifier } from "./llm-context";
+import { handleAutoApprove, autoApprovePanelLine } from "./auto-approve";
+import type { SessionAutoApprove } from "../state/mutation-approval";
 import { writeToggle } from "../state/extension-toggle";
 
 // ====== 自动补全项类型（结构上匹配 pi-tui AutocompleteItem）======
@@ -44,6 +42,7 @@ const SUBCOMMANDS = [
   "favorite",
   "relations",
   "related",
+  "auto-approve",
   "on",
   "off",
 ] as const;
@@ -54,6 +53,7 @@ export function registerDbCommand(
   enabled: boolean,
   toggleBaseDir: string,
   statusNotifier: DbStatusNotifier,
+  autoApprove: SessionAutoApprove,
 ): void {
   // 禁用态：只注册精简版 /db——唯一入口是 on（重新启用）。
   // 命令不进模型上下文，零成本；不初始化 workspace（on 分支不需要）。
@@ -83,7 +83,7 @@ export function registerDbCommand(
 
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | related | on | off",
+      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | related | auto-approve [on|off] | on | off",
 
     getArgumentCompletions: async (prefix) => {
       return getCompletions(prefix, getWorkspace());
@@ -101,13 +101,22 @@ export function registerDbCommand(
           // 面板打开时按需刷新 LLM 上下文（状态未变则不重复注入）。
           // 未选择数据库时零注入：面板里的状态行只展示给用户。
           statusNotifier.notifyIfChanged();
-          const action = await showDashboard(ctx, ws);
+          const action = await showDashboard(ctx, ws, autoApprove);
           if (!action) return;
-          await dispatchAction(action, ctx, ws, pi, rest, relatedCache, statusNotifier);
+          await dispatchAction(
+            action,
+            ctx,
+            ws,
+            pi,
+            rest,
+            relatedCache,
+            statusNotifier,
+            autoApprove,
+          );
           break;
         }
         case "switch":
-          await handleSwitch(ctx, ws, statusNotifier);
+          await handleSwitch(ctx, ws, statusNotifier, autoApprove);
           break;
         case "add":
           await handleAdd(ctx, ws);
@@ -132,6 +141,9 @@ export function registerDbCommand(
           break;
         case "related":
           await handleRelatedBrowser(ctx, relatedCache);
+          break;
+        case "auto-approve":
+          await handleAutoApprove(ctx, ws, autoApprove, rest[0]);
           break;
         case "on":
           await handleToggle(ctx, true, toggleBaseDir);
@@ -179,6 +191,7 @@ export async function getCompletions(
   const subSubs: Record<string, string[]> = {
     favorite: ["add"],
     relations: ["add", "remove", "discover"],
+    "auto-approve": ["on", "off"],
   };
 
   // 当第一个词与拥有子子命令的子命令完全匹配时，立即显示第二层。
@@ -244,12 +257,14 @@ const DASHBOARD_ACTIONS: DashboardAction[] = [
   { value: "favorite", label: "⭐ 收藏查询", needsConnection: true },
   { value: "relations", label: "🔗 表关联关系", needsConnection: true },
   { value: "related", label: "📎 关联表浏览器", needsConnection: false },
+  { value: "auto-approve", label: "🔓 变更免确认", needsConnection: false },
 ];
 
 /** 构建交互式仪表盘组件。 */
 async function showDashboard(
   ctx: ExtensionCommandContext,
   ws: DatabaseWorkspaceService,
+  autoApprove: SessionAutoApprove,
 ): Promise<string | undefined> {
   // 构建状态行
   let statusLines: string[] = [];
@@ -291,6 +306,17 @@ async function showDashboard(
     for (const line of statusLines) {
       container.addChild(new Text(theme.fg("dim", `  ${line}`), 1, 0));
     }
+
+    // 免确认开关状态——开启是提权态，用 warning 色一眼可见；默认关闭用 dim。
+    container.addChild(
+      new Text(
+        autoApprove.enabled
+          ? theme.fg("warning", `  ${autoApprovePanelLine(autoApprove)}`)
+          : theme.fg("dim", `  ${autoApprovePanelLine(autoApprove)}`),
+        1,
+        0,
+      ),
+    );
 
     // 警告
     if (showWarnings) {
@@ -343,10 +369,11 @@ async function dispatchAction(
   rest: string[],
   relatedCache: RelatedBrowserCacheStore,
   statusNotifier: DbStatusNotifier,
+  autoApprove: SessionAutoApprove,
 ): Promise<void> {
   switch (action) {
     case "switch":
-      await handleSwitch(ctx, ws, statusNotifier);
+      await handleSwitch(ctx, ws, statusNotifier, autoApprove);
       break;
     case "add":
       await handleAdd(ctx, ws);
@@ -372,6 +399,9 @@ async function dispatchAction(
     case "related":
       await handleRelatedBrowser(ctx, relatedCache);
       break;
+    case "auto-approve":
+      await handleAutoApprove(ctx, ws, autoApprove, autoApprove.enabled ? "off" : "on");
+      break;
   }
 }
 
@@ -389,13 +419,3 @@ async function handleToggle(
 }
 
 // ====== 状态栏辅助 ======
-
-/** 会话开始时恢复状态栏。 */
-export function restoreStatusBar(ws: DatabaseWorkspaceService, ctx: ExtensionContext): void {
-  if (ws.isReady) {
-    ctx.ui.setStatus(STATUS_KEY, ws.statusLabel);
-    ctx.ui.setWidget(STATUS_KEY, [
-      `🗄 ${ws.current!.environment}/${ws.current!.database}  @${ws.current!.connectionId}`,
-    ]);
-  }
-}

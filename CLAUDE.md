@@ -54,7 +54,7 @@ formatting/        ← formatTableResult —— 自动布局：横向 / 转置 /
 ### 关键设计模式
 
 - **深度工作空间模块**：`DatabaseWorkspaceService` 将 WorkspaceContext + QueryRunner 吸收进一个类。所有委托（`manager`、`history`、`favorites`、`relationGraph`）都是私有字段——命令通过约 23 个专用方法穿越外部接缝。任何命令都不能越过 facade。
-- **单一执行点**：所有读查询经过 `DatabaseConnectionManager.executeQuery`，它应用只读守卫和 LIMIT 策略（`connection/sql-policy.ts`——纯函数，`READONLY_SQL_RE` 的唯一归属），然后在检出的专用连接上执行（`getConnection → USE → query → release`），这样 USE 与查询不会散落在连接池的不同连接上。无界 SELECT 自动追加 `LIMIT n`（默认 100，connections.yaml 中可配 per-connection `queryLimit`）；最终 SQL 通过 `result.sql` 返回，用户可以看到自动追加的 LIMIT。写操作经过 `DatabaseWorkspaceService.executeMutationWithApproval`——唯一写入口，在 facade 内完成 `prepareMutationQuery`（DDL 拒绝，抛 `MutationValidationError`）→ 人工确认（注入的确认回调，生产为 `showMutationConfirm`）→ 执行。命令处理器只在分发时（表名 vs SQL）导入 `READONLY_SQL_RE`，绝不用于执行期校验。
+- **单一执行点**：所有读查询经过 `DatabaseConnectionManager.executeQuery`，它应用只读守卫和 LIMIT 策略（`connection/sql-policy.ts`——纯函数，`READONLY_SQL_RE` 的唯一归属），然后在检出的专用连接上执行（`getConnection → USE → query → release`），这样 USE 与查询不会散落在连接池的不同连接上。无界 SELECT 自动追加 `LIMIT n`（默认 100，connections.yaml 中可配 per-connection `queryLimit`）；最终 SQL 通过 `result.sql` 返回，用户可以看到自动追加的 LIMIT。写操作经过 `DatabaseWorkspaceService.executeMutationWithApproval`——唯一写入口，在 facade 内完成 `prepareMutationQuery`（DDL 拒绝，抛 `MutationValidationError`）→ 确认（注入回调：默认 `showMutationConfirm`；会话开关 `/db auto-approve on` 时直接放行并在结果中标注免确认，见 `docs/session-auto-approve.md`）→ 执行。命令处理器只在分发时（表名 vs SQL）导入 `READONLY_SQL_RE`，绝不用于执行期校验。
 - **实时 schema**：`getTables()` 和 `getTableSchema()` 总是查询 `information_schema`——无缓存、无刷新。实践中足够廉价且永不过期。
 - **BFS 自动 JOIN**：`RelationGraph.bfsQuery()` 遍历内存前向图，每跳发出参数化（`IN (?)`）、schema 限定的查询。深度受限（默认 2，最大 5）。它从调用方接收 `QueryFn` 而非 mysql2 连接池——图保持数据库无关，用 stub 测试。
 - **懒加载工作空间初始化**：`DatabaseWorkspaceService` 不在扩展工厂中构造（工厂可能运行在从不启动会话的调用中，如 `--list-models` 或 print 模式）。懒 getter 将打开 SQLite / 读取配置推迟到 `session_start`、第一次 `/db` 命令或第一次工具调用。首次创建时用会话 cwd（`ctx.cwd`，`process.cwd()` 兜底）定持久化键——选择按项目隔离，不跨项目携带（`docs/workspace-scope-and-status-noise.md`）。
@@ -66,15 +66,15 @@ formatting/        ← formatTableResult —— 自动布局：横向 / 转置 /
 
 扩展在 `tools/db-tools.ts` 中为 LLM 注册 7 个工具（5 个只读 + 2 个写：`db_relation` 写本地 SQLite 元数据，`db_mutate` 写 MySQL）。其中 3 个工具**懒加载**——已注册但未激活，通过 `db_tools` loader 工具按需启用（`tools/db-tool-catalog.ts` 持有纯关键词匹配目录 + `applyInitialToolSet`，在 `index.ts` 的 `session_start` 中调用，让每个会话从最小集合开始）：
 
-| 工具                | 类型   | 激活方式  | 描述                                                                                                        |
-| ------------------- | ------ | --------- | ----------------------------------------------------------------------------------------------------------- |
-| `db_query`          | 只读   | 常驻      | 执行只读 SQL 查询；自动追加 LIMIT。结果用 `truncateHead` 截断（50KB / 2000 行）。                           |
-| `db_tables`         | 只读   | 常驻      | 列出表，或展示某张表的列 + 索引（传 `table`）。使用共享纯函数 `formatSchemaMarkdown`。                      |
-| `db_mutate`         | **写** | 常驻      | 执行 INSERT/UPDATE/DELETE/REPLACE，带人工确认门（overlay 对话框，Enter 批准）。拒绝 DDL。                   |
-| `db_tools`          | 只读   | 常驻      | Loader：按需启用 `db_discover` / `db_list_relations` / `db_relation`（加性 `setActiveTools`，下一轮生效）。 |
-| `db_discover`       | 只读   | 经 loader | 发现连接和数据库——探索入口。返回已配置的连接及某连接上的数据库。                                            |
-| `db_list_relations` | 只读   | 经 loader | 列出已注册的表关联关系——AI 读这些关系自行写 JOIN 或规划批量查询。                                           |
-| `db_relation`       | **写** | 经 loader | 管理本地 SQLite 中的表关联关系：action="register"（幂等 upsert）或 action="delete"（按列对匹配）。          |
+| 工具                | 类型   | 激活方式  | 描述                                                                                                                                |
+| ------------------- | ------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `db_query`          | 只读   | 常驻      | 执行只读 SQL 查询；自动追加 LIMIT。结果用 `truncateHead` 截断（50KB / 2000 行）。                                                   |
+| `db_tables`         | 只读   | 常驻      | 列出表，或展示某张表的列 + 索引（传 `table`）。使用共享纯函数 `formatSchemaMarkdown`。                                              |
+| `db_mutate`         | **写** | 常驻      | 执行 INSERT/UPDATE/DELETE/REPLACE，默认带人工确认门（overlay 对话框，Enter 批准）；`/db auto-approve on` 后本会话免确认。拒绝 DDL。 |
+| `db_tools`          | 只读   | 常驻      | Loader：按需启用 `db_discover` / `db_list_relations` / `db_relation`（加性 `setActiveTools`，下一轮生效）。                         |
+| `db_discover`       | 只读   | 经 loader | 发现连接和数据库——探索入口。返回已配置的连接及某连接上的数据库。                                                                    |
+| `db_list_relations` | 只读   | 经 loader | 列出已注册的表关联关系——AI 读这些关系自行写 JOIN 或规划批量查询。                                                                   |
+| `db_relation`       | **写** | 经 loader | 管理本地 SQLite 中的表关联关系：action="register"（幂等 upsert）或 action="delete"（按列对匹配）。                                  |
 
 `db_query` 和 `db_tables` 默认使用工作空间选择，但接受可选的 `connection` / `database` 覆盖，由 `DatabaseWorkspaceService.resolveTarget` 解析（显式 connection 不带 database 时回退到其 `defaultDatabase`）。`db_list_relations` / `db_relation` 接受可选的 `database` 覆盖。同一 MySQL 实例上的数据库可以用 `db.table` 限定名直接 JOIN——连接池不带默认数据库连接，所以 `USE` 从来不是沙箱。
 
