@@ -11,6 +11,7 @@ import type { DatabaseWorkspaceService } from "../state/workspace";
 import { handleSwitch } from "./switch";
 import { handleAdd } from "./add";
 import { handleTables } from "./tables";
+import { handleSample } from "./sample";
 import { handleSchema } from "./schema";
 import { handleQuery } from "./query";
 import { handleHistory } from "./history";
@@ -36,6 +37,7 @@ const SUBCOMMANDS = [
   "switch",
   "add",
   "tables",
+  "sample",
   "schema",
   "query",
   "history",
@@ -83,7 +85,7 @@ export function registerDbCommand(
 
   pi.registerCommand("db", {
     description:
-      "Database workspace: /db (panel) | switch | add | tables | schema <table> | query [table] | history [kw] | favorite | relations | related | auto-approve [on|off] | on | off",
+      "Database workspace: /db (panel) | switch | add | tables | sample <table> | schema <table> | query [table] | history [kw] | favorite | relations | related | auto-approve [on|off] | on | off",
 
     getArgumentCompletions: async (prefix) => {
       return getCompletions(prefix, getWorkspace());
@@ -123,6 +125,9 @@ export function registerDbCommand(
           break;
         case "tables":
           await handleTables(ctx, ws, pi);
+          break;
+        case "sample":
+          await handleSample(ctx, ws, pi, rest[0]);
           break;
         case "schema":
           await handleSchema(ctx, ws, pi, rest[0]);
@@ -203,9 +208,9 @@ export async function getCompletions(
       .map((s) => ({ value: `${sub} ${s} `, label: s }));
   }
 
-  // 表名参数（schema、query）——在第一级部分匹配之前触发，
+  // 表名参数（schema、query、sample）——在第一级部分匹配之前触发，
   // 避免精确子命令匹配自引用。
-  const takesTable = sub === "schema" || sub === "query";
+  const takesTable = sub === "schema" || sub === "query" || sub === "sample";
   if (takesTable && ws.isReady) {
     try {
       const tables = await ws.getTables();
@@ -240,17 +245,18 @@ export async function getCompletions(
 
 // ====== 仪表盘 ================================================
 
-interface DashboardAction {
+export interface DashboardAction {
   value: string;
   label: string;
   /** 该操作是否需要已连接的数据库 */
   needsConnection?: boolean;
 }
 
-const DASHBOARD_ACTIONS: DashboardAction[] = [
+export const DASHBOARD_ACTIONS: DashboardAction[] = [
   { value: "switch", label: "🔄 切换环境/数据库", needsConnection: false },
   { value: "add", label: "➕ 添加新连接", needsConnection: false },
   { value: "tables", label: "📋 浏览数据表", needsConnection: true },
+  { value: "sample", label: "📄 查看样例数据", needsConnection: true },
   { value: "schema", label: "🔍 查看表结构", needsConnection: true },
   { value: "query", label: "💬 SQL 查询", needsConnection: true },
   { value: "history", label: "📜 查询历史", needsConnection: true },
@@ -380,6 +386,9 @@ async function dispatchAction(
       break;
     case "tables":
       await handleTables(ctx, ws, pi);
+      break;
+    case "sample":
+      await handleSample(ctx, ws, pi, rest[0]);
       break;
     case "schema":
       await handleSchema(ctx, ws, pi, rest[0]);
