@@ -202,7 +202,7 @@ bfsQuery("orders", rows, maxDepth=2, limit=10)
 
 ### 3.7 数据修改工具 — db_mutate
 
-`db_mutate` 是唯一的写路径，设计原则是「AI 提议，人类批准」。仪式（校验 + 人工确认）由 facade 持有：
+`db_mutate` 是唯一的写路径，设计原则是「AI 提议，人类批准」。仪式（校验 + 确认）由 facade 持有：
 
 ```
 LLM 调用 db_mutate({ sql, connection?, database? })
@@ -211,19 +211,19 @@ LLM 调用 db_mutate({ sql, connection?, database? })
 ws.executeMutationWithApproval(sql, opts, confirm)   ← facade 唯一写入口
   ├─ 1. prepareMutationQuery(sql)     ← DML 校验（DDL 抛 MutationValidationError）
   ├─ 2. resolveTarget(opts)           ← 目标解析
-  ├─ 3. confirm({ 校验结果 + 目标 })  ← showMutationConfirm TUI overlay
-  │     ├─ Enter → 确认
+  ├─ 3. confirm({ 校验结果 + 目标 })  ← 会话免确认开启? 直接放行 : showMutationConfirm overlay
+  │     ├─ Enter / 会话开关 → 确认（开关放行时结果标注免人工确认）
   │     └─ Esc  → 返回 { status: "rejected" } 给 LLM（非错误）
   └─ 4. manager.executeMutation()     ← 执行，返回 affectedRows
 ```
 
-确认回调由调用方注入（生产 = `showMutationConfirm`，测试 = stub），facade 保持 pi-free。
+确认回调由调用方注入（默认 = `showMutationConfirm`；会话开关开启时短路放行，测试 = stub），facade 保持 pi-free。
 
 **安全边界**：
 
 - DDL（CREATE/DROP/ALTER/TRUNCATE）硬性拒绝，不弹窗
 - UPDATE/DELETE 无 WHERE 时弹窗显示醒目警告，但不阻止执行
-- 每次调用独立确认，无缓存/跳过机制
+- 每次调用独立确认，无缓存；唯一例外是会话级开关 `/db auto-approve on`（默认关闭、二次确认、随会话复位，模型无法自行开启，见 [session-auto-approve.md](./session-auto-approve.md)）
 - `mutate-confirm.ts` 组件用颜色区分操作类型：INSERT=绿、UPDATE=黄、DELETE=红
 
 ### 3.8 持久化存储
@@ -323,13 +323,14 @@ MySQL 的 `information_schema.KEY_COLUMN_USAGE` 只能发现已定义的外键�
 
 ```
 1. tools/db-tools.ts: db_mutate.execute()
-   └─ ws.executeMutationWithApproval(sql, opts,
-        (req) => showMutationConfirm(ctx, req))   ← 注入确认回调
+   └─ ws.executeMutationWithApproval(sql, opts, confirm)
+        confirm：会话开关开启 → 直接放行（结果标注免确认）
+                 否则 → showMutationConfirm(ctx, req)   ← 注入确认回调
         │
 2. workspace.ts: executeMutationWithApproval()     ← facade 持有仪式
    ├─ prepareMutationQuery(sql)                    ← DML 校验（DDL 拒绝）
    ├─ resolveTarget(opts)                          ← 目标解析
-   ├─ confirm({ 校验结果 + 目标 })                 ← 用户 Esc → rejected / Enter → 继续
+   ├─ confirm({ 校验结果 + 目标 })                 ← Esc → rejected / Enter（或会话开关）→ 继续
    └─ manager.executeMutation(connId, db, sql)
         │
 3. db-manager.ts: executeMutation()

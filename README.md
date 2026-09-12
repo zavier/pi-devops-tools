@@ -6,7 +6,7 @@
 
 - **SQL 查询** — 只读执行 + 自动 LIMIT 封顶，结果自适应格式化
 - **实时表结构** — 直接查询 `information_schema`，始终最新
-- **AI 工具** — 7 个 LLM 工具，写操作（`db_mutate`）需人工确认
+- **AI 工具** — 7 个 LLM 工具，写操作（`db_mutate`）默认需人工确认，可按会话临时免确认
 - **表关系图** — 注册外键关系，BFS 自动联表查询
 - **查询历史与收藏** — 本地记录查询，支持关键词搜索与一键执行收藏模板
 - **跨库查询** — 同一 MySQL 实例上的库可直接 `db.table` JOIN，无需切换
@@ -82,6 +82,7 @@ connections:
 | `/db favorite [add]`                    | 管理收藏的 SQL 模板（按数据库分组）                                                                               |
 | `/db relations [add\|remove\|discover]` | 管理表关联关系                                                                                                    |
 | `/db related`                           | 以悬浮层浏览器查看最近一次关联查询的关联表（←→ 切表 · ↑↓ 滚动 · Esc 关闭）                                        |
+| `/db auto-approve [on\|off]`            | 会话级变更免确认开关（默认关闭；开启需二次确认，仅本会话生效）                                                    |
 | `/db on` / `/db off`                    | 会话内启用 / 禁用扩展（见[启用与禁用](#启用与禁用)）                                                              |
 
 `/db query` 的三种调用方式 — 参数命中已知表名走选表模式，以 `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN` 开头则直接执行：
@@ -116,7 +117,7 @@ connections:
 | ------------------- | ------ | ---- | ------------------------------------------------------------------------------------------- |
 | `db_query`          | 只读   | 常驻 | 执行只读 SQL 查询（与 `/db query` 相同的安全限制）                                          |
 | `db_tables`         | 只读   | 常驻 | 列出数据库的所有表；传 `table` 查看该表的结构（列、索引，实时查询）                         |
-| `db_mutate`         | **写** | 常驻 | 执行 INSERT/UPDATE/DELETE/REPLACE，需人工确认                                               |
+| `db_mutate`         | **写** | 常驻 | 执行 INSERT/UPDATE/DELETE/REPLACE，默认需人工确认（`/db auto-approve on` 后本会话免确认）   |
 | `db_tools`          | 只读   | 常驻 | 按需启用下方 3 个懒加载工具（loader，下一轮生效）                                           |
 | `db_discover`       | 只读   | 按需 | 发现可用的连接和数据库 — 探索入口。返回已配置的连接及其数据库                               |
 | `db_list_relations` | 只读   | 按需 | 列出已注册的表关系 — AI 可用于自行编写 JOIN                                                 |
@@ -126,7 +127,7 @@ connections:
 
 只读工具遵循与用户命令相同的只读保护：只能执行 SELECT/SHOW/DESCRIBE/EXPLAIN，DELETE/DROP/UPDATE 等写操作会被拒绝。`db_query`、`db_tables` 支持可选的 `connection`/`database` 参数以跨库/跨连接查询。
 
-`db_mutate` 用于数据修改：DDL（CREATE/DROP/ALTER/TRUNCATE）被硬性拒绝，UPDATE/DELETE 无 WHERE 时会显示警告。每次调用弹出 overlay 确认弹窗（Enter 确认 / Esc 取消），不可跳过。
+`db_mutate` 用于数据修改：DDL（CREATE/DROP/ALTER/TRUNCATE）被硬性拒绝，UPDATE/DELETE 无 WHERE 时会显示警告。每次调用默认弹出 overlay 确认弹窗（Enter 确认 / Esc 取消）；可在本会话内用 `/db auto-approve on`（需二次确认）临时跳过，开关默认关闭、纯内存不落盘、随会话结束恢复，且模型无法自行开启（见 [docs/session-auto-approve.md](docs/session-auto-approve.md)）。
 
 ## 测试
 
@@ -145,6 +146,21 @@ connections:
 - 禁用后扩展完全不占用上下文空间：LLM 工具不注册（`/tools` 中消失）、`db-explore` skill 不再被发现、状态栏不再显示、`/db` 仅保留 `on` 子命令作为重新启用的入口。已配置的连接数据（`connections.yaml` / `state.db`）**不会删除**，重新启用后一切恢复。
 - 开关状态存于 `~/.pi/database/extension.json`（`{ "enabled": false }`），文件缺失/损坏时默认启用。
 - 扩展被 `pi config` 禁用时本扩展根本不加载，`/db on` 也不可用——那是"彻底不用"的语义，与会话内开关一致。
+
+## 变更免确认（会话级）
+
+`db_mutate` 的写操作默认每次弹窗确认。自动化或批量操作场景可在**当前会话**内临时跳过：
+
+```bash
+/db auto-approve        # 查看当前状态（默认关闭）
+/db auto-approve on     # 开启（弹确认框二次确认）
+/db auto-approve off    # 关闭
+```
+
+- 仅本会话生效，纯内存不落盘；`/reload`、`/new`、`/resume` 后自动恢复关闭。
+- 开启后状态栏与 widget 的连接信息追加 `• 免确认` 后缀（如 `🗄 test/qa_db • 免确认`），写操作结果中标注「免人工确认」，`/db` 面板状态行同步展示。
+- 模型不能自行开启该开关（只响应用户命令 / 驱动 UI 的自动化），避免自我提权。
+- `-p` / `--mode json` 下命令是 no-op，写操作保持 fail-closed；RPC 模式可通过 `prompt` 发送该命令（确认对话框走 RPC 协议）。
 
 ## 数据存储
 

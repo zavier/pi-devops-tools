@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 import { DatabaseWorkspaceService } from "./state/workspace";
 import { DEFAULT_BASE } from "./state/state-store";
 import { readToggle } from "./state/extension-toggle";
-import { registerDbCommand, restoreStatusBar } from "./commands/db";
+import { registerDbCommand } from "./commands/db";
+import { applyWorkspaceStatus } from "./commands/switch";
 import { registerRenderers } from "./commands/renderers";
 import { registerDbTools, applyInitialToolSet } from "./tools/db-tools";
 import { createDbStatusNotifier } from "./commands/llm-context";
+import { createSessionAutoApprove } from "./state/mutation-approval";
 import { normalizeScopeKey } from "./state/workspace-store";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +37,9 @@ export default function (pi: ExtensionAPI) {
   // 会话级注入器：同一状态每会话只告知模型一次；未选择时不注入。
   const statusNotifier = createDbStatusNotifier(pi, getWorkspace);
 
+  // 会话级"变更免确认"开关：纯内存、默认关闭，命令面与工具层共享同一实例。
+  const autoApprove = createSessionAutoApprove();
+
   if (enabled) {
     // 自定义消息渲染器（紧凑查询结果、纯文本面板）
     registerRenderers(pi);
@@ -42,11 +47,11 @@ export default function (pi: ExtensionAPI) {
     // 注册 LLM 工具：常驻（db_query, db_tables, db_mutate）+ db_tools
     // loader（按需启用 db_discover, db_list_relations, db_relation——
     // 见 tools/db-tool-catalog.ts）。
-    registerDbTools(pi, getWorkspace);
+    registerDbTools(pi, getWorkspace, autoApprove);
   }
 
   // 注册 /db 命令（禁用态为精简版，仅响应 on）
-  registerDbCommand(pi, getWorkspace, enabled, DEFAULT_BASE, statusNotifier);
+  registerDbCommand(pi, getWorkspace, enabled, DEFAULT_BASE, statusNotifier, autoApprove);
 
   // 注册内置 skills，使其随扩展被发现。禁用时返回空——skill 以 XML 块进
   // 系统提示词，连带禁用以保持零上下文。
@@ -63,9 +68,12 @@ export default function (pi: ExtensionAPI) {
     // （db_discover, db_list_relations, db_relation）经 db_tools loader
     // 按需启用，保持 system prompt 精简。
     applyInitialToolSet(pi);
+    // 会话边界复位免确认开关（工厂重跑已复位，这里保证不变量）。
+    autoApprove.reset();
     // 用会话 cwd 定键（/resume 可能进入另一个项目目录，进程 cwd 不一定一致）。
     const ws = getWorkspace(normalizeScopeKey(ctx.cwd));
-    restoreStatusBar(ws, ctx);
+    // 恢复状态栏与 widget；复位后免确认后缀必然为空（默认关闭零噪音）。
+    applyWorkspaceStatus(ctx, ws, autoApprove);
     // 告知 LLM 当前激活的数据库，避免它通过一次失败的调用去发现。
     // 未选择数据库时不注入任何内容。
     statusNotifier.notifyIfChanged();
