@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getCompletions } from "../commands/db";
+import { DASHBOARD_ACTIONS, getCompletions } from "../commands/db";
 import type { DatabaseWorkspaceService } from "../state/workspace";
 
 /** 最小 ws stub: 只需要 getCompletions 用到的两个成员。 */
@@ -46,7 +46,7 @@ describe("getCompletions (/db 参数补全)", () => {
     expect(await getCompletions("favorite x", stubWs())).toBeNull();
   });
 
-  it("completes table names for 'schema' and 'query'", async () => {
+  it("completes table names for 'schema', 'query' and 'sample'", async () => {
     const ws = stubWs({ tables: ["t_orders", "t_customers", "t_products"] });
     const schemaResult = await getCompletions("schema t_", ws);
     expect(schemaResult?.map((c) => c.value).sort()).toEqual([
@@ -57,6 +57,9 @@ describe("getCompletions (/db 参数补全)", () => {
 
     const queryResult = await getCompletions("query t_products", ws);
     expect(queryResult?.map((c) => c.label)).toEqual(["t_products"]);
+
+    const sampleResult = await getCompletions("sample t_o", ws);
+    expect(sampleResult?.map((c) => c.value)).toEqual(["sample t_orders"]);
   });
 
   it("is case-insensitive for table filtering", async () => {
@@ -86,5 +89,17 @@ describe("getCompletions (/db 参数补全)", () => {
     // 未就绪时不查表, 退回子命令前缀匹配(无匹配则 null)
     const result = await getCompletions("schema", ws);
     expect(result).not.toContainEqual(expect.objectContaining({ label: "t_orders" }));
+  });
+});
+
+describe("仪表盘操作项", () => {
+  it("在「浏览数据表」正下方提供「查看样例数据」", () => {
+    const values = DASHBOARD_ACTIONS.map((a) => a.value);
+    const tableIndex = values.indexOf("tables");
+    const sample = DASHBOARD_ACTIONS[tableIndex + 1];
+
+    expect(sample.value).toBe("sample");
+    expect(sample.label).toContain("查看样例数据");
+    expect(sample.needsConnection).toBe(true);
   });
 });
